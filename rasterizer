@@ -1,0 +1,64 @@
+import os
+from osgeo import gdal, ogr
+
+def rasterize_tab_files_memory_optimized(input_folder, output_file, pixel_size=5):
+    """
+    Rasterize all MapInfo .tab files in the input folder and merge them into a single GeoTIFF,
+    using minimal memory.
+
+    Args:
+        input_folder (str): Path to the folder containing .tab files.
+        output_file (str): Path to the output GeoTIFF file.
+        pixel_size (float): Resolution (pixel size) in meters.
+    """
+    # Get list of all .tab files in the folder
+    tab_files = [os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.endswith(".tab")]
+
+    if not tab_files:
+        raise FileNotFoundError("No .tab files found in the specified folder.")
+
+    # Initialize variables for creating the output raster
+    x_min, x_max, y_min, y_max = float("inf"), float("-inf"), float("inf"), float("-inf")
+    srs = None
+
+    # Determine the extent and spatial reference of all .tab files
+    for tab_file in tab_files:
+        vector = ogr.Open(tab_file)
+        layer = vector.GetLayer()
+        extent = layer.GetExtent()  # (minX, maxX, minY, maxY)
+        x_min, x_max = min(x_min, extent[0]), max(x_max, extent[1])
+        y_min, y_max = min(y_min, extent[2]), max(y_max, extent[3])
+        if srs is None:
+            srs = layer.GetSpatialRef()  # Use the SRS of the first layer
+
+    # Calculate raster dimensions
+    x_res = int((x_max - x_min) / pixel_size)
+    y_res = int((y_max - y_min) / pixel_size)
+
+    # Create the output raster file
+    output_raster = gdal.GetDriverByName('GTiff').Create(
+        output_file, x_res, y_res, 1, gdal.GDT_Byte,
+        options=["COMPRESS=LZW", "TILED=YES", "BIGTIFF=YES"]
+    )
+    output_raster.SetGeoTransform((x_min, pixel_size, 0, y_max, 0, -pixel_size))
+    output_raster.SetProjection(srs.ExportToWkt())
+    band = output_raster.GetRasterBand(1)
+    band.SetNoDataValue(0)
+
+    # Rasterize each .tab file directly into the output raster
+    for tab_file in tab_files:
+        vector = ogr.Open(tab_file)
+        layer = vector.GetLayer()
+        gdal.RasterizeLayer(output_raster, [1], layer, burn_values=[1])
+
+    # Close and flush the raster
+    band.FlushCache()
+    output_raster = None
+
+    print(f"GeoTIFF created at: {output_file}")
+
+
+# Example Usage
+input_folder = "path_to_tab_files"  # Replace with the folder containing .tab files
+output_file = "output.tif"  # Replace with the desired output file path
+rasterize_tab_files_memory_optimized(input_folder, output_file, pixel_size=5)
