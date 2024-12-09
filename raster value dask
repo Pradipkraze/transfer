@@ -1,0 +1,41 @@
+raster value dask
+import dask.dataframe as dd
+import rasterio
+from rasterio.transform import Affine
+import numpy as np
+import pandas as pd
+
+# File paths
+csv_path = "your_coordinates.csv"  # Replace with your CSV file path
+raster_path = "your_geotiff.tif"   # Replace with your GeoTIFF file path
+output_csv = "output_with_raster_values.csv"
+
+# Load the CSV using Dask
+ddf = dd.read_csv(csv_path)
+
+# Function to extract raster values
+def extract_raster_value(row, raster_path):
+    with rasterio.open(raster_path) as src:
+        # Get affine transform
+        transform = src.transform
+
+        # Convert to raster (pixel) coordinates
+        px, py = ~transform * (row['x'], row['y'])
+
+        # Get pixel values
+        px, py = int(px), int(py)
+        try:
+            value = src.read(1)[py, px]  # Band 1
+        except IndexError:  # Handle out-of-bounds coordinates
+            value = np.nan
+    return value
+
+# Apply the extraction function to each row using Dask
+ddf['raster_value'] = ddf.apply(lambda row: extract_raster_value(row, raster_path), axis=1, meta=('raster_value', 'float64'))
+
+# Compute the result (this triggers parallel computation)
+result_df = ddf.compute()
+
+# Save the result to a new CSV
+result_df.to_csv(output_csv, index=False)
+print(f"Raster values added to CSV and saved to {output_csv}.")
