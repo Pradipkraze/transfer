@@ -1,0 +1,41 @@
+final 2The `chunked` method is not a valid method for the `DatasetReader` object in Rasterio.
+
+Instead, you can use the `read` method with the `window` argument to read the raster data in chunks. Here's an example:
+```
+import pandas as pd
+import rasterio
+
+Read XY coordinates from CSV file
+df = pd.read_csv('points.csv', header=None, names=['x', 'y'])
+
+Read GeoTIFF file
+with rasterio.open('raster.tif') as src:
+    # Get the block size
+    block_size = src.block_windows
+
+    # Create a window for each block
+    windows = []
+    for block in block_size:
+        window = block
+        windows.append(window)
+
+    # Read the raster values for each window
+    values = []
+    for window in windows:
+        data = src.read(1, window=window)
+        for i in range(data.shape[0]):
+            for j in range(data.shape[1]):
+                value = data[i, j]
+                x, y = src.xy(window.row_off + i, window.col_off + j)
+                # Find the corresponding point in the DataFrame
+                point = df[(df['x'] == x) & (df['y'] == y)]
+                if not point.empty:
+                    values.append(value)
+
+    # Add the raster values to the DataFrame
+    df['value'] = values
+
+Save the results to a new CSV file
+df.to_csv('results.csv', index=False)
+```
+This code reads the raster data in blocks using the `read` method with the `window` argument, and then finds the corresponding points in the DataFrame for each block. The raster values are then added to the DataFrame, and the results are saved to a new CSV file.
