@@ -1,34 +1,35 @@
 import pandas as pd
 import rasterio
-from rasterio.sample import sample_gen
+from rasterio.plot import show
+from rasterio.coords import disjoint_bounds
 
-def get_raster_values(csv_path, tiff_path, output_csv):
-    # Read CSV file into a DataFrame
-    df = pd.read_csv(csv_path)
-    
-    # Ensure the CSV has the required columns
-    if 'x' not in df.columns or 'y' not in df.columns:
-        raise ValueError("CSV must contain 'x' and 'y' columns.")
-    
-    # Open the GeoTIFF file
-    with rasterio.open(tiff_path) as src:
-        # Create generator for coordinate pairs
-        coordinates = [(x, y) for x, y in zip(df['x'], df['y'])]
-        
-        # Sample raster values
-        raster_values = list(src.sample(coordinates))
-        
-    # Flatten the sampled values (handles multi-band rasters)
-    df['raster_value'] = [val[0] if len(val) == 1 else val for val in raster_values]
-    
-    # Save the results to a new CSV
-    df.to_csv(output_csv, index=False)
-    print(f"Raster values have been saved to {output_csv}")
+# File paths
+csv_path = "your_coordinates.csv"  # Replace with your CSV file path
+raster_path = "your_geotiff.tif"   # Replace with your GeoTIFF file path
 
-# Paths to the input and output files
-csv_path = 'coordinates.csv'
-tiff_path = 'raster.tif'
-output_csv = 'output_with_raster_values.csv'
+# Load the CSV into a pandas DataFrame
+df = pd.read_csv(csv_path)
 
-# Run the function
-get_raster_values(csv_path, tiff_path, output_csv)
+# Ensure the CSV has 'x' and 'y' columns (rename if necessary)
+assert 'x' in df.columns and 'y' in df.columns, "CSV must have 'x' and 'y' columns for coordinates."
+
+# Open the GeoTIFF
+with rasterio.open(raster_path) as src:
+    # Get the raster CRS
+    raster_crs = src.crs
+
+    # Prepare to extract raster values
+    points = [(row.x, row.y) for _, row in df.iterrows()]
+
+    # Extract raster values at each point
+    raster_values = list(src.sample(points))
+    raster_values = [v[0] for v in raster_values]  # Assuming single-band GeoTIFF
+
+# Add extracted raster values to the DataFrame
+df['raster_value'] = raster_values
+
+# Save to a new CSV
+output_csv = "output_with_raster_values.csv"
+df.to_csv(output_csv, index=False)
+
+print(f"Raster values added to CSV and saved to {output_csv}.")
