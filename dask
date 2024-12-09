@@ -1,0 +1,87 @@
+To get pixel values for lat/long coordinates in a CSV file, you can use the following methods:
+
+*Method 1: GDAL Python Bindings*
+
+- Fast and efficient
+- Supports various raster formats
+
+```
+import osgeo.gdal as gdal
+
+Open the raster file
+ds = gdal.Open('raster_file.tif')
+
+Read the CSV file
+with open('points.csv', 'r') as csvfile:
+    for line in csvfile:
+        lat, lon = map(float, line.strip().split(','))
+        
+        # Convert lat/long to pixel coordinates
+        x, y = ds.GetGeoTransform()(lon, lat)
+        
+        # Get the pixel value
+        value = ds.GetRasterBand(1).ReadAsArray(int(x), int(y), 1, 1)[0, 0]
+        
+        # Print or store the pixel value
+        print(f"Lat: {lat}, Lon: {lon}, Value: {value}")
+```
+
+*Method 2: Rasterio*
+
+- Faster than GDAL Python bindings
+- More Pythonic API
+
+```
+import rasterio
+
+Open the raster file
+with rasterio.open('raster_file.tif') as src:
+    # Read the CSV file
+    with open('points.csv', 'r') as csvfile:
+        for line in csvfile:
+            lat, lon = map(float, line.strip().split(','))
+            
+            # Convert lat/long to pixel coordinates
+            x, y = src.index(lon, lat)
+            
+            # Get the pixel value
+            value = src.read(1)[y, x]
+            
+            # Print or store the pixel value
+            print(f"Lat: {lat}, Lon: {lon}, Value: {value}")
+```
+
+*Method 3: Dask + Rasterio*
+
+- Fast and scalable for large datasets
+- Supports parallel processing
+
+```
+import dask
+import rasterio
+
+Open the raster file
+with rasterio.open('raster_file.tif') as src:
+    # Read the CSV file
+    points = []
+    with open('points.csv', 'r') as csvfile:
+        for line in csvfile:
+            lat, lon = map(float, line.strip().split(','))
+            points.append((lat, lon))
+    
+    # Define a function to get the pixel value
+    def get_pixel_value(point):
+        lat, lon = point
+        x, y = src.index(lon, lat)
+        value = src.read(1)[y, x]
+        return value
+    
+    # Apply the function to each point in parallel
+    values = dask.compute(*[dask.delayed(get_pixel_value)(point) for point in points])
+    
+    # Print or store the pixel values
+    for point, value in zip(points, values):
+        print(f"Lat: {point[0]}, Lon: {point[1]}, Value: {value}")
+```
+
+Choose the method that best fits your needs based on performance, scalability, and ease of use.
