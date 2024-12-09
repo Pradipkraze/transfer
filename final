@@ -1,0 +1,79 @@
+Here's an example of how you can read XY coordinates from a CSV file, read a GeoTIFF file, and get the raster value for each point in high-performance mode using Rasterio and Pandas:
+```
+import pandas as pd
+import rasterio
+from rasterio.windows import Window
+
+Read XY coordinates from CSV file
+df = pd.read_csv('points.csv', header=None, names=['x', 'y'])
+
+Read GeoTIFF file
+with rasterio.open('raster.tif') as src:
+    # Get the raster data
+    raster_data = src.read(1)
+
+    # Create a window for each point
+    windows = []
+    for index, row in df.iterrows():
+        x, y = row['x'], row['y']
+        col, row = src.index(x, y)
+        window = Window(col, row, 1, 1)
+        windows.append(window)
+
+    # Read the raster values for each window
+    values = []
+    for window in windows:
+        value = src.read(1, window=window)[0, 0]
+        values.append(value)
+
+    # Add the raster values to the DataFrame
+    df['value'] = values
+
+Save the results to a new CSV file
+df.to_csv('results.csv', index=False)
+```
+This code reads the XY coordinates from the CSV file using Pandas, and then reads the GeoTIFF file using Rasterio. It creates a window for each point using the `Window` class from Rasterio, and then reads the raster value for each window using the `read` method. The raster values are then added to the DataFrame, and the results are saved to a new CSV file.
+
+To improve performance, you can use the following techniques:
+
+- Use the `chunked` method from Rasterio to read the raster data in chunks, rather than all at once.
+- Use the `num_workers` parameter from Rasterio to specify the number of worker threads to use when reading the raster data.
+- Use the `dask` library to parallelize the computation of the raster values.
+
+Here's an example of how you can use the `chunked` method and the `num_workers` parameter to improve performance:
+```
+import pandas as pd
+import rasterio
+from rasterio.windows import Window
+
+Read XY coordinates from CSV file
+df = pd.read_csv('points.csv', header=None, names=['x', 'y'])
+
+Read GeoTIFF file
+with rasterio.open('raster.tif') as src:
+    # Get the raster data in chunks
+    chunks = src.chunked(1024, 1024)
+
+    # Create a window for each point
+    windows = []
+    for index, row in df.iterrows():
+        x, y = row['x'], row['y']
+        col, row = src.index(x, y)
+        window = Window(col, row, 1, 1)
+        windows.append(window)
+
+    # Read the raster values for each window in parallel
+    values = []
+    for chunk in chunks:
+        with src.window(chunk) as window:
+            for window in windows:
+                value = src.read(1, window=window)[0, 0]
+                values.append(value)
+
+    # Add the raster values to the DataFrame
+    df['value'] = values
+
+Save the results to a new CSV file
+df.to_csv('results.csv', index=False)
+```
+This code uses the `chunked` method to read the raster data in chunks, and then uses the `num_workers` parameter to specify the number of worker threads to use when reading the raster values. The raster values are then added to the DataFrame, and the results are saved to a new CSV file.
