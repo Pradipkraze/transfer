@@ -1,31 +1,39 @@
-Here is an example of how to open a TIFF file with Rasterio, read a CSV file with lat/long coordinates separated by spaces, get the raster value for each lat/long pair, and write the results to a new CSV file:
+In that case, you can modify the code to not expect a header row in the CSV file. Here's an updated version of the code:
 ```
 import rasterio
 import csv
 
-Open the TIFF file
 with rasterio.open('input.tif') as src:
-    # Read the CSV file with lat/long coordinates
     with open('input.csv', 'r') as csvfile:
         reader = csv.reader(csvfile, delimiter=' ')
         with open('output.csv', 'w') as output_csv:
             writer = csv.writer(output_csv)
             writer.writerow(['lat', 'lon', 'value'])  # header row
             for row in reader:
-                lat, lon = float(row[0]), float(row[1])
-                x, y = src.index(lon, lat)
-                value = src.read(1)[y, x]
-                writer.writerow([lat, lon, value])
+                try:
+                    lat, lon = float(row[0]), float(row[1])
+                    x, y = src.index(lon, lat)
+                    value = src.read(1)[y, x]
+                    writer.writerow([lat, lon, value])
+                except ValueError:
+                    print(f"Error: Could not convert {row[0]} or {row[1]} to float.")
 ```
-Here's how the code works:
+This code will still write a header row to the output CSV file, but it will not expect a header row in the input CSV file.
 
-1. We open the TIFF file using `rasterio.open()`.
-2. We read the CSV file with lat/long coordinates using `csv.reader()`. We specify the delimiter as a space (`' '`) since the coordinates are separated by spaces.
-3. We open a new CSV file for writing using `open()` and create a `csv.writer` object to write the results.
-4. We write a header row to the output CSV file with the column names `lat`, `lon`, and `value`.
-5. We iterate over each row in the input CSV file. For each row, we extract the lat/long coordinates and convert them to floats.
-6. We use the `src.index()` method to convert the lat/long coordinates to pixel coordinates (x, y) in the TIFF file.
-7. We use the `src.read()` method to read the raster value at the pixel coordinates (x, y). We specify the band number as 1 since we're reading from a single-band TIFF file.
-8. We write the lat/long coordinates and the raster value to the output CSV file using the `writer.writerow()` method.
+Alternatively, you can use the `numpy` library to read the CSV file and convert the values to floats. Here's an example:
+```
+import rasterio
+import numpy as np
 
-Note that this code assumes that the TIFF file has a single band and that the lat/long coordinates in the input CSV file are in the same coordinate reference system (CRS) as the TIFF file. If your TIFF file has multiple bands or a different CRS, you may need to modify the code accordingly.
+with rasterio.open('input.tif') as src:
+    data = np.loadtxt('input.csv')
+    with open('output.csv', 'w') as output_csv:
+        writer = csv.writer(output_csv)
+        writer.writerow(['lat', 'lon', 'value'])  # header row
+        for row in data:
+            lat, lon = row
+            x, y = src.index(lon, lat)
+            value = src.read(1)[y, x]
+            writer.writerow([lat, lon, value])
+```
+This code uses the `numpy` library to read the CSV file and convert the values to floats. It then uses the same logic as before to write the output CSV file.
