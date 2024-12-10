@@ -1,0 +1,42 @@
+import rasterio
+from rasterio.merge import merge
+import numpy as np
+
+# File paths
+state_dem_path = "state_dem.tif"  # Replace with your state DEM path
+city_dem_path = "city_dem.tif"    # Replace with your city DEM path
+output_dem_path = "merged_dem.tif"  # Output path for the merged DEM
+
+# Open the state DEM
+with rasterio.open(state_dem_path) as state_src:
+    state_data = state_src.read(1)  # Read the first band
+    state_meta = state_src.meta     # Metadata for writing later
+
+# Open the city DEM
+with rasterio.open(city_dem_path) as city_src:
+    # Ensure both DEMs have the same CRS and resolution
+    if city_src.crs != state_meta['crs']:
+        raise ValueError("City DEM and State DEM must have the same CRS.")
+    if city_src.transform != state_meta['transform']:
+        raise ValueError("City DEM and State DEM must have the same resolution and alignment.")
+
+    city_data = city_src.read(1)  # Read the first band
+    
+    # Create a mask for the city DEM (valid data where city DEM has values)
+    city_mask = city_data != city_src.nodata  # True for valid data, False for no-data
+
+# Replace state DEM values with city DEM values in overlapping regions
+merged_data = state_data.copy()
+merged_data[city_mask] = city_data[city_mask]
+
+# Update metadata
+state_meta.update({
+    "dtype": merged_data.dtype,
+    "nodata": state_meta.get('nodata') or -9999  # Set a default nodata value if not defined
+})
+
+# Save the merged DEM
+with rasterio.open(output_dem_path, "w", **state_meta) as dest:
+    dest.write(merged_data, 1)
+
+print(f"Merged DEM saved to {output_dem_path}.")
