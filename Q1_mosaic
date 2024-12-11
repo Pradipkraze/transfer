@@ -1,10 +1,9 @@
 import rasterio
-from rasterio.warp import reproject, Resampling
+from rasterio.warp import reproject, calculate_default_transform, Resampling
 from rasterio.merge import merge
-from rasterio.enums import Resampling
 import numpy as np
 
-# Function to resample a raster file to match the dimensions of another raster file
+# Function to resample a raster file to match the pixel size of another raster file
 def resample_raster(source_path, target_path, output_path):
     with rasterio.open(source_path) as src:
         src_data = src.read(1)
@@ -13,16 +12,21 @@ def resample_raster(source_path, target_path, output_path):
         with rasterio.open(target_path) as target:
             target_transform = target.transform
             target_crs = target.crs
-            target_shape = (target.height, target.width)
+            target_res = target.res
+
+            # Calculate new transform and dimensions
+            new_transform, width, height = calculate_default_transform(
+                src.crs, target_crs, src.width, src.height, resolution=target_res
+            )
 
             # Resampling
-            resampled_data = np.empty(target_shape, dtype=np.int16)
+            resampled_data = np.empty((height, width), dtype=np.int16)
             reproject(
                 source=src_data,
                 destination=resampled_data,
                 src_transform=src_transform,
                 src_crs=src.crs,
-                dst_transform=target_transform,
+                dst_transform=new_transform,
                 dst_crs=target_crs,
                 resampling=Resampling.nearest
             )
@@ -30,9 +34,9 @@ def resample_raster(source_path, target_path, output_path):
             # Write the resampled file
             profile = src.profile
             profile.update({
-                'transform': target_transform,
-                'height': target_shape[0],
-                'width': target_shape[1]
+                'transform': new_transform,
+                'height': height,
+                'width': width
             })
 
             with rasterio.open(output_path, 'w', **profile) as dst:
@@ -46,9 +50,10 @@ def create_new_dim_raster(source_path, ref_path, output_path):
 
         with rasterio.open(source_path) as src:
             src_data = src.read(1)
+            src_nodata = src.nodata
 
             # Prepare new data array
-            new_data = np.full(ref_shape, src.nodata, dtype=np.int16)
+            new_data = np.full(ref_shape, src_nodata, dtype=np.int16)
 
             # Update metadata to match the reference raster
             profile = src.profile
