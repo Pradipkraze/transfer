@@ -1,9 +1,8 @@
 import rasterio
 from rasterio.merge import merge
-from rasterio.mask import mask
 import numpy as np
 
-def mosaic_big_tiffs(image_a_path, image_b_path, output_path, nodata_value=0):
+def mosaic_big_tiffs(image_a_path, image_b_path, output_path, nodata_value=0, pixel_size_tolerance=1e-6):
     """
     Mosaic two BigTIFF images, taking values from image_b for overlapping areas
     and ignoring `0` and no-data values in both images.
@@ -13,20 +12,29 @@ def mosaic_big_tiffs(image_a_path, image_b_path, output_path, nodata_value=0):
         image_b_path (str): Path to the second image (b).
         output_path (str): Path to save the output mosaic.
         nodata_value (int/float): Value to treat as no-data (default=0).
+        pixel_size_tolerance (float): Tolerance for pixel size differences.
     """
     # Open both images
     with rasterio.open(image_a_path) as src_a, rasterio.open(image_b_path) as src_b:
-        # Check CRS and pixel sizes
-        print(f"Image A - CRS: {src_a.crs}, Pixel Size: {src_a.res}")
-        print(f"Image B - CRS: {src_b.crs}, Pixel Size: {src_b.res}")
+        # Check CRS
+        if src_a.crs != src_b.crs:
+            raise ValueError("Both images must have the same CRS.")
 
-        # Ensure both images have the same CRS and resolution
-        if src_a.crs != src_b.crs or src_a.res != src_b.res:
-            raise ValueError("Both images must have the same CRS and pixel size.")
+        # Check pixel sizes with tolerance
+        pixel_size_a = src_a.res
+        pixel_size_b = src_b.res
+        if not all(abs(a - b) <= pixel_size_tolerance for a, b in zip(pixel_size_a, pixel_size_b)):
+            raise ValueError(
+                f"Pixel sizes differ beyond tolerance: {pixel_size_a} vs {pixel_size_b}. "
+                "Consider resampling one of the images."
+            )
+        
+        print(f"Image A - CRS: {src_a.crs}, Pixel Size: {src_a.res}, Data Type: {src_a.dtypes[0]}")
+        print(f"Image B - CRS: {src_b.crs}, Pixel Size: {src_b.res}, Data Type: {src_b.dtypes[0]}")
 
-        # Read data lazily using generators
+        # Ensure the output profile matches the input data type
         profile = src_a.profile
-        profile.update(dtype=rasterio.float32, nodata=nodata_value, bigtiff='YES')
+        profile.update(dtype='int16', nodata=nodata_value, bigtiff='YES')
 
         with rasterio.open(output_path, 'w', **profile) as dst:
             # Process in chunks
@@ -36,7 +44,7 @@ def mosaic_big_tiffs(image_a_path, image_b_path, output_path, nodata_value=0):
                 data_b = src_b.read(window=window, masked=True)
                 
                 # Initialize the result array
-                result = np.array(data_a, dtype=np.float32)
+                result = np.array(data_a, dtype=np.int16)
                 
                 # Update result: Prioritize data_b values over data_a
                 valid_b = (data_b != nodata_value) & (~data_b.mask)
