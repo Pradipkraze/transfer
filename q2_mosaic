@@ -1,0 +1,82 @@
+import rasterio
+from rasterio.enums import Resampling
+from rasterio.merge import merge
+import numpy as np
+
+def resample_image(source_path, target_pixel_size, output_path):
+    with rasterio.open(source_path) as src:
+        transform = src.transform
+        new_transform = rasterio.Affine(
+            target_pixel_size[0], transform.b, transform.c,
+            transform.d, target_pixel_size[1], transform.f
+        )
+
+        new_width = int((src.bounds.right - src.bounds.left) / target_pixel_size[0])
+        new_height = int((src.bounds.top - src.bounds.bottom) / abs(target_pixel_size[1]))
+
+        data = src.read(
+            out_shape=(src.count, new_height, new_width),
+            resampling=Resampling.bilinear
+        )
+        data = data.astype(src.dtypes[0])
+
+        profile = src.profile
+        profile.update(
+            driver='GTiff',
+            height=new_height,
+            width=new_width,
+            transform=new_transform,
+            BIGTIFF='YES'
+        )
+
+        with rasterio.open(output_path, 'w', **profile) as dst:
+            dst.write(data)
+
+def adjust_image_dimensions(source_path, reference_path, output_path):
+    with rasterio.open(source_path) as src:
+        with rasterio.open(reference_path) as ref:
+            profile = ref.profile
+            data = np.zeros((ref.count, ref.height, ref.width), dtype=src.dtypes[0])
+
+            src_data = src.read(out_shape=(src.count, ref.height, ref.width), resampling=Resampling.nearest)
+            mask = src.read_masks(1)
+            data[:, mask != 0] = src_data[:, mask != 0]
+
+            profile.update(BIGTIFF='YES')
+            with rasterio.open(output_path, 'w', **profile) as dst:
+                dst.write(data)
+
+def create_mosaic(image_a_path, image_b_path, output_path):
+    with rasterio.open(image_a_path) as img_a, rasterio.open(image_b_path) as img_b:
+        data_a = img_a.read()
+        data_b = img_b.read()
+
+        mask_b = (data_b != img_b.nodata)
+        mosaic = np.where(mask_b, data_b, data_a)
+
+        profile = img_a.profile
+        profile.update(BIGTIFF='YES')
+
+        with rasterio.open(output_path, 'w', **profile) as dst:
+            dst.write(mosaic)
+
+# Paths to input files and outputs
+image_a = "path_to_image_a.tif"
+image_b = "path_to_image_b.tif"
+image_a_resampled = "A_resample.tif"
+image_b_new_dim = "B_new_dim.tif"
+output_mosaic = "mosaic.tif"
+
+# Step 1: Resample Image A to the pixel size of Image B
+with rasterio.open(image_b) as img_b:
+    pixel_size = (img_b.transform[0], -img_b.transform[4])
+
+resample_image(image_a, pixel_size, image_a_resampled)
+
+# Step 2: Adjust Image B dimensions to match the extent of the resampled Image A
+adjust_image_dimensions(image_b, image_a_resampled, image_b_new_dim)
+
+# Step 3: Create mosaic prioritizing Image B's values where not nodata
+create_mosaic(image_a_resampled, image_b_new_dim, output_mosaic)
+
+print("Mosaic created successfully at", output_mosaic)
