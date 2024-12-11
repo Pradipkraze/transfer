@@ -1,83 +1,98 @@
 import rasterio
-from rasterio.warp import calculate_default_transform, reproject, Resampling
+from rasterio.warp import reproject, Resampling
 from rasterio.merge import merge
+from rasterio.enums import Resampling
 import numpy as np
 
-# Function to resample a raster to match the dimensions and resolution of another raster
-def resample_raster(src_path, target_path, output_path):
-    with rasterio.open(src_path) as src:
+# Function to resample a raster file to match the dimensions of another raster file
+def resample_raster(source_path, target_path, output_path):
+    with rasterio.open(source_path) as src:
+        src_data = src.read(1)
+        src_transform = src.transform
+
         with rasterio.open(target_path) as target:
-            # Read the metadata of the target file
-            transform, width, height = calculate_default_transform(
-                src.crs, target.crs, target.width, target.height, *target.bounds
+            target_transform = target.transform
+            target_crs = target.crs
+            target_shape = (target.height, target.width)
+
+            # Resampling
+            resampled_data = np.empty(target_shape, dtype=np.int16)
+            reproject(
+                source=src_data,
+                destination=resampled_data,
+                src_transform=src_transform,
+                src_crs=src.crs,
+                dst_transform=target_transform,
+                dst_crs=target_crs,
+                resampling=Resampling.nearest
             )
-            profile = src.profile.copy()
+
+            # Write the resampled file
+            profile = src.profile
             profile.update({
-                'crs': target.crs,
-                'transform': transform,
-                'width': width,
-                'height': height
+                'transform': target_transform,
+                'height': target_shape[0],
+                'width': target_shape[1]
             })
 
-            # Create the output file with updated profile
             with rasterio.open(output_path, 'w', **profile) as dst:
-                for i in range(1, src.count + 1):
-                    reproject(
-                        source=rasterio.band(src, i),
-                        destination=rasterio.band(dst, i),
-                        src_transform=src.transform,
-                        src_crs=src.crs,
-                        dst_transform=transform,
-                        dst_crs=target.crs,
-                        resampling=Resampling.bilinear
-                    )
+                dst.write(resampled_data, 1)
 
-# Function to create a new raster with updated dimensions
-def create_new_dim_raster(src_path, reference_path, output_path):
-    with rasterio.open(src_path) as src:
-        with rasterio.open(reference_path) as ref:
-            profile = ref.profile.copy()
+# Function to create a new raster with updated dimensions based on another raster
+def create_new_dim_raster(source_path, ref_path, output_path):
+    with rasterio.open(ref_path) as ref:
+        ref_transform = ref.transform
+        ref_shape = (ref.height, ref.width)
 
-            # Create the new raster with the reference dimensions and resolution
+        with rasterio.open(source_path) as src:
+            src_data = src.read(1)
+
+            # Prepare new data array
+            new_data = np.full(ref_shape, src.nodata, dtype=np.int16)
+
+            # Update metadata to match the reference raster
+            profile = src.profile
+            profile.update({
+                'transform': ref_transform,
+                'height': ref_shape[0],
+                'width': ref_shape[1]
+            })
+
+            # Write the new raster
             with rasterio.open(output_path, 'w', **profile) as dst:
-                data = src.read(out_shape=(src.count, ref.height, ref.width),
-                                resampling=Resampling.bilinear)
+                dst.write(new_data, 1)
 
-                # Exclude nodata (assumed 0 by default)
-                data[data == 0] = ref.nodata or 0
-                dst.write(data)
+# Function to create a mosaic using two raster files
+def create_mosaic(raster_a_path, raster_b_path, output_path):
+    with rasterio.open(raster_a_path) as src_a:
+        data_a = src_a.read(1)
+        nodata_a = src_a.nodata
 
-# Function to create a mosaic
-# Takes the value of image B for overlapping pixels, excluding 0 and nodata values
-def create_mosaic(image_a_path, image_b_path, output_path):
-    with rasterio.open(image_a_path) as img_a:
-        with rasterio.open(image_b_path) as img_b:
-            data_a = img_a.read()
-            data_b = img_b.read()
+        with rasterio.open(raster_b_path) as src_b:
+            data_b = src_b.read(1)
+            nodata_b = src_b.nodata
 
-            # Create an output mosaic where B values take precedence for overlaps
-            mosaic = np.where(data_b != 0, data_b, data_a)
+            # Create mosaic: use B's value if it's not nodata, otherwise use A's value
+            mosaic_data = np.where(data_b != nodata_b, data_b, data_a)
 
-            # Use the metadata of the first image as the base profile
-            profile = img_a.profile
+            # Update profile for output
+            profile = src_a.profile
+            profile.update({
+                'BIGTIFF': 'YES'
+            })
 
-            # Write the mosaic to a BigTIFF file
-            profile.update(dtype='int16', BIGTIFF='YES')
+            # Write the mosaic file
             with rasterio.open(output_path, 'w', **profile) as dst:
-                dst.write(mosaic)
+                dst.write(mosaic_data, 1)
 
-# File paths
-image_a_path = "image_a.tif"
-image_b_path = "image_b.tif"
-resampled_a_path = "A_resample.tif"
-new_b_path = "B_new_dim.tif"
-mosaic_path = "mosaic.tif"
+# Paths to input and output files
+image_a = "image_a.tif"
+image_b = "image_b.tif"
+a_resample = "a_resample.tif"
+b_new_dim = "b_new_dim.tif"
+mosaic_output = "mosaic.tif"
 
-# Resample image A to match the dimensions of image B
-resample_raster(image_a_path, image_b_path, resampled_a_path)
-
-# Create image B_new_dim.tif with the dimensions of A_resample.tif
-create_new_dim_raster(image_b_path, resampled_a_path, new_b_path)
-
-# Create the mosaic
-create_mosaic(resampled_a_path, new_b_path, mosaic_path)
+# Process the images
+resample_raster(image_a, image_b, a_resample)
+create_new_dim_raster(image_b, a_resample, b_new_dim)
+create_mosaic(a_resample, b_new_dim, mosaic_output)
