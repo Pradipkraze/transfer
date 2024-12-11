@@ -1,0 +1,47 @@
+import rasterio
+import numpy as np
+
+# File paths
+image_a_path = "image_a.tif"  # Replace with Image A file path
+image_b_path = "image_b.tif"  # Replace with Image B file path
+output_path = "mosaic_image.tif"  # Output file path
+
+# Open Image A
+with rasterio.open(image_a_path) as src_a:
+    image_a = src_a.read(1)  # Read the first band
+    meta = src_a.meta       # Copy metadata
+    nodata_a = src_a.nodata # No-data value for Image A
+
+# Open Image B
+with rasterio.open(image_b_path) as src_b:
+    image_b = src_b.read(1)  # Read the first band
+    nodata_b = src_b.nodata  # No-data value for Image B
+
+    # Ensure both images have the same CRS and resolution
+    if src_a.transform != src_b.transform or src_a.crs != src_b.crs:
+        raise ValueError("Image A and Image B must have the same CRS and resolution.")
+
+# Create valid data masks (True for valid pixels)
+valid_a = (image_a != 0) & (image_a != nodata_a)
+valid_b = (image_b != 0) & (image_b != nodata_b)
+
+# Initialize the mosaic with nodata
+mosaic = np.full_like(image_a, nodata_a, dtype=meta['dtype'])
+
+# Merge the images
+# 1. Use Image A values where valid
+mosaic[valid_a] = image_a[valid_a]
+# 2. Overwrite with Image B values where valid
+mosaic[valid_b] = image_b[valid_b]
+
+# Update metadata for the output file
+meta.update({
+    "dtype": mosaic.dtype,
+    "nodata": nodata_a  # Set no-data value for the output
+})
+
+# Save the mosaic
+with rasterio.open(output_path, "w", **meta) as dst:
+    dst.write(mosaic, 1)
+
+print(f"Mosaic saved to {output_path}.")
