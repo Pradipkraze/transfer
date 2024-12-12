@@ -1,0 +1,58 @@
+import rasterio
+from rasterio.merge import merge
+from rasterio.windows import Window
+import numpy as np
+
+# Input and output file paths
+input_files = ["1.tif", "2.tif", "3.tif"]
+output_file = "final_merged.tif"
+
+# Open all input rasters
+rasters = [rasterio.open(f) for f in input_files]
+
+# Get metadata from the first raster
+meta = rasters[0].meta.copy()
+
+# Update metadata for the output file
+meta.update({
+    "driver": "GTiff",
+    "bigtiff": "YES",  # Enable BigTIFF for large outputs
+    "count": 1,        # Assuming single-band rasters
+    "compress": "LZW", # Optional: compression for reduced file size
+    "nodata": 0        # Set nodata value
+})
+
+# Calculate the merged extent and resolution
+merged_data, merged_transform = merge(rasters, nodata=0, method='last')  # Calculate the merge extent
+meta.update({
+    "height": merged_data.shape[1],
+    "width": merged_data.shape[2],
+    "transform": merged_transform
+})
+
+# Write the output incrementally using a window-based approach
+with rasterio.open(output_file, "w", **meta) as dst:
+    # Divide the output raster into manageable chunks (windows)
+    block_size = 1024  # Adjust based on memory capacity
+    for row in range(0, meta["height"], block_size):
+        for col in range(0, meta["width"], block_size):
+            # Define a window
+            window = Window(col, row, block_size, block_size).intersection(
+                Window(0, 0, meta["width"], meta["height"])
+            )
+            # Create an empty array for the merged block
+            merged_block = np.full((1, window.height, window.width), 0, dtype=meta["dtype"])
+
+            # Read and merge data from each raster for the current window
+            for raster in rasters:
+                window_data = raster.read(1, window=window, boundless=True, fill_value=0)
+                merged_block[0] = np.where((window_data > 0) & (merged_block[0] == 0), window_data, merged_block[0])
+
+            # Write the processed block to the output file
+            dst.write(merged_block, 1, window=window)
+
+# Close all input rasters
+for raster in rasters:
+    raster.close()
+
+print(f"Final merged raster saved as: {output_file}")
