@@ -1,34 +1,48 @@
 import pandas as pd
 import requests
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Define file paths
-input_file = '/mnt/data/test.csv'
-output_file = '/mnt/data/updated_test.parquet'
-
-# Function to make GET requests and return response text
+# Function to fetch the content of a URL
 def fetch_url(url):
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=10)  # Set a timeout to avoid hanging requests
         return response.text
     except Exception as e:
-        return str(e)
+        return f"Error: {e}"
 
-# Process the file in chunks
-chunk_size = 100  # Adjust based on available memory
-with pd.read_csv(input_file, delimiter='|', chunksize=chunk_size) as reader:
-    for i, chunk in enumerate(reader):
-        # Process URLs in the current chunk
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            chunk['response_body'] = list(executor.map(fetch_url, chunk['urls']))
+# Main function
+def main():
+    # Read the CSV file delimited by "|"
+    df = pd.read_csv("test.csv", delimiter="|")
 
-        # Append to the Parquet file
-        chunk.to_parquet(
-            output_file,
-            engine='pyarrow',  # or 'fastparquet'
-            index=False,
-            compression='snappy',
-            append=i > 0  # Append mode for subsequent chunks
-        )
+    # Ensure the "urls" column exists
+    if "urls" not in df.columns:
+        raise ValueError("Column 'urls' not found in the CSV file.")
 
-output_file
+    # Drop NaN values from the URLs column
+    urls = df["urls"].dropna().tolist()
+
+    # List to store responses
+    responses = []
+
+    # Use ThreadPoolExecutor for concurrency
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        # Submit tasks to the executor
+        future_to_url = {executor.submit(fetch_url, url): url for url in urls}
+
+        # Collect responses as they complete
+        for future in as_completed(future_to_url):
+            try:
+                responses.append(future.result())
+            except Exception as e:
+                responses.append(f"Error: {e}")
+
+    # Add the responses as a new column
+    df["response_body"] = pd.Series(responses)
+
+    # Write the resulting DataFrame to a Parquet file
+    df.to_parquet("output.parquet", engine="pyarrow", index=False)
+
+# Execute the main function
+if __name__ == "__main__":
+    main()
