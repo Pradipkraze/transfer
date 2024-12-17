@@ -2,8 +2,6 @@ import pandas as pd
 import requests
 from concurrent.futures import ThreadPoolExecutor
 import os
-import pyarrow.parquet as pq
-import pyarrow as pa
 
 def fetch_url(url):
     """Fetches the content of a URL."""
@@ -15,33 +13,25 @@ def fetch_url(url):
 
 def process_chunk(chunk, executor):
     """Processes a chunk of the DataFrame, adding the fetched URL content."""
-    # Fetch the URLs concurrently and add the response as a new column
     chunk['response'] = list(executor.map(fetch_url, chunk['urls']))
     return chunk
 
-def process_csv_to_parquet(input_csv, output_parquet, delimiter="|", chunk_size=1000, max_workers=2):
-    """Reads a CSV file in chunks, fetches URL data concurrently, and writes to a Parquet file."""
+def process_csv_to_csv(input_csv, output_csv, delimiter="|", chunk_size=1000, max_workers=2):
+    """Reads a CSV file in chunks, fetches URL data concurrently, and writes to a new CSV file."""
     
-    # Check if the Parquet file already exists
-    file_exists = os.path.exists(output_parquet)
+    # Check if the output file exists to determine if we need to write headers
+    file_exists = os.path.exists(output_csv)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for chunk in pd.read_csv(input_csv, delimiter=delimiter, chunksize=chunk_size):
             # Process the chunk and fetch URL responses
             processed_chunk = process_chunk(chunk, executor)
             
-            # Convert to PyArrow Table
-            table = pa.Table.from_pandas(processed_chunk)
-            
-            if not file_exists:
-                # If the file doesn't exist, write the first chunk as a new file
-                pq.write_table(table, output_parquet, compression="snappy")
-                file_exists = True
-            else:
-                # If the file exists, append the chunk
-                pq.write_table(table, output_parquet, compression="snappy", append=True)
+            # Append the chunk to the output CSV (without writing header if the file exists)
+            processed_chunk.to_csv(output_csv, mode='a', index=False, header=not file_exists)
+            file_exists = True
 
 # Usage
 input_csv = "input.csv"  # Path to your input CSV
-output_parquet = "output.parquet"  # Path to save the Parquet file
-process_csv_to_parquet(input_csv, output_parquet)
+output_csv = "output.csv"  # Path to save the updated CSV
+process_csv_to_csv(input_csv, output_csv)
