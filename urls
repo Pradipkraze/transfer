@@ -1,30 +1,46 @@
 import pandas as pd
 import requests
 
-# Step 1: Read the CSV file delimited by "|"
-input_csv = "test.csv"
-df = pd.read_csv(input_csv, delimiter="|")
+def process_csv(input_file, output_file, url_column, response_column='Response'):
+    """
+    Reads a pipe-delimited CSV, fetches GET responses for URLs in the specified column,
+    and writes the updated DataFrame to a new pipe-delimited CSV.
+    
+    Parameters:
+        input_file (str): Path to the input CSV file.
+        output_file (str): Path to save the output CSV file.
+        url_column (str): The column name containing the URLs.
+        response_column (str): The column name for storing response bodies (default 'Response').
+    """
+    # Read the pipe-delimited CSV
+    df = pd.read_csv(input_file, delimiter='|')
 
-# Step 2: Ensure the 'URLs' column exists
-if 'URLs' not in df.columns:
-    raise ValueError("The input CSV must contain a column named 'URLs'.")
+    # Validate URL column
+    if url_column not in df.columns:
+        raise ValueError(f"The specified URL column '{url_column}' is not in the CSV.")
 
-# Step 3: Define a function to get the response from each URL
-def fetch_url_response(url):
-    try:
-        # Send a GET request to the URL
-        response = requests.get(url, timeout=10)  # Timeout of 10 seconds
-        # Return the HTTP status code
-        return response.status_code
-    except requests.RequestException as e:
-        # Return the error as a string if the request fails
-        return f"Error: {str(e)}"
+    # Fetch GET responses and store in a new column
+    responses = []
+    for url in df[url_column]:
+        try:
+            # Fetch the URL
+            response = requests.get(url)
+            response.raise_for_status()  # Raise an error for bad status codes
+            responses.append(response.text)
+        except requests.exceptions.RequestException as e:
+            responses.append(f"Error: {e}")
 
-# Step 4: Apply the function to the 'URLs' column and save responses in a new column
-df['Response'] = df['URLs'].apply(fetch_url_response)
+    # Add the responses to the DataFrame
+    df[response_column] = responses
 
-# Step 5: Save the updated DataFrame back to a CSV file, delimited by "|"
-output_csv = "test_output.csv"
-df.to_csv(output_csv, index=False, sep="|")
+    # Save the updated DataFrame to a new pipe-delimited CSV
+    df.to_csv(output_file, sep='|', index=False)
+    print(f"Updated CSV saved to {output_file}")
 
-print(f"Processed CSV saved to {output_csv}")
+
+# Example usage
+input_csv = "test.csv"  # Replace with the actual input file path
+output_csv = "test_with_responses.csv"  # Replace with the desired output file path
+url_column_name = "URLs"  # Replace with the actual column name containing URLs
+
+process_csv(input_csv, output_csv, url_column_name)
