@@ -1,6 +1,7 @@
 import pandas as pd
 import requests
 from concurrent.futures import ThreadPoolExecutor
+import os
 
 def fetch_url(url):
     """Fetches the content of a URL."""
@@ -17,22 +18,23 @@ def process_chunk(chunk, executor):
 
 def process_csv_to_parquet(input_csv, output_parquet, delimiter="|", chunk_size=1000, max_workers=2):
     """Reads a CSV file in chunks, fetches URL data concurrently, and writes to a Parquet file."""
+    # Remove the output file if it exists to avoid appending issues
+    if os.path.exists(output_parquet):
+        os.remove(output_parquet)
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Initialize a writer for Parquet output
-        first_chunk = True
         for chunk in pd.read_csv(input_csv, delimiter=delimiter, chunksize=chunk_size):
             # Process the chunk
             processed_chunk = process_chunk(chunk, executor)
             
-            # Write the processed chunk to Parquet using append mode
+            # Write the processed chunk to Parquet
             processed_chunk.to_parquet(
                 output_parquet,
                 engine="pyarrow",
                 index=False,
                 compression="snappy",
-                append=not first_chunk,
+                mode="a",
             )
-            first_chunk = False
 
 # Usage
 input_csv = "input.csv"  # Path to your input CSV
