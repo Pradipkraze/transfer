@@ -31,4 +31,3 @@ with ThreadPoolExecutor(max_workers=2) as executor:
 # Write the updated DataFrame to a Parquet file using append
 table = pq.Table.from_pandas(df)
 pq.write_to_dataset(table, 'output.parquet', compression='snappy', use_dictionary=True, chunksize=10000)
-
