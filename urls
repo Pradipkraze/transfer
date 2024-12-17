@@ -1,0 +1,34 @@
+Here's an example code snippet that reads a CSV file delimited by `|`, creates a Pandas DataFrame, hits the URLs in the `URLs` column using the `requests` library, and saves the response in a new column:
+```
+import pandas as pd
+import requests
+
+Read the CSV file delimited by |
+df = pd.read_csv('input.csv', delimiter='|')
+
+Create a new column to store the response
+df['Response'] = ''
+
+Hit the URLs and save the response
+for index, row in df.iterrows():
+    url = row['URLs']
+    try:
+        response = requests.get(url)
+        (link unavailable)[index, 'Response'] = response.text
+    except requests.exceptions.RequestException as e:
+        (link unavailable)[index, 'Response'] = str(e)
+
+Write the updated DataFrame to a new CSV file
+df.to_csv('output.csv', delimiter='|', index=False)
+```
+Here's how the code works:
+
+1. We read the input CSV file delimited by `|` using `pd.read_csv`.
+2. We create a new column `Response` to store the response from hitting the URLs.
+3. We iterate through each row in the DataFrame using `df.iterrows`.
+4. For each row, we extract the URL from the `URLs` column and hit it using `requests.get`.
+5. We save the response text in the `Response` column.
+6. If there's an error hitting the URL, we save the error message in the `Response` column.
+7. Finally, we write the updated DataFrame to a new CSV file using `df.to_csv`.
+
+Note that this code assumes that the `URLs` column contains valid URLs that can be hit using `requests.get`. Also, the response text is saved in the `Response` column, which may not be suitable for large responses. You may want to modify the code to handle these cases.
