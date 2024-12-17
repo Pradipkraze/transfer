@@ -1,0 +1,31 @@
+import pandas as pd
+import requests
+from concurrent.futures import ThreadPoolExecutor
+
+# Read the test.csv file delimited by "|"
+file_path = 'test.csv'
+df = pd.read_csv(file_path, delimiter='|')
+
+# Function to make GET requests and return response text
+def fetch_url(url):
+    try:
+        response = requests.get(url, timeout=10)
+        return response.text
+    except Exception as e:
+        return str(e)
+
+# Process URLs concurrently, 5 at a time
+urls = df['urls'].tolist()
+response_bodies = []
+
+with ThreadPoolExecutor(max_workers=5) as executor:
+    response_bodies = list(executor.map(fetch_url, urls))
+
+# Add the responses as a new column in the DataFrame
+df['response_body'] = response_bodies
+
+# Write the updated DataFrame to a new CSV file delimited by "|"
+output_file_path = 'updated_test.csv'
+df.to_csv(output_file_path, sep='|', index=False)
+
+output_file_path
