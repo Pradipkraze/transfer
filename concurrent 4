@@ -1,33 +1,47 @@
 import pandas as pd
 import requests
 from concurrent.futures import ThreadPoolExecutor
+import os
 import pyarrow.parquet as pq
+import pyarrow as pa
 
-# Read the CSV file with | delimited
-df = pd.read_csv('input.csv', delimiter='|')
-
-# Create a new column to store the response
-df['response'] = ''
-
-# Define a function to make a GET request and return the response
-def make_request(url):
+def fetch_url(url):
+    """Fetches the content of a URL."""
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         return response.text
-    except requests.exceptions.RequestException as e:
-        return str(e)
+    except requests.RequestException as e:
+        return f"Error: {e}"
 
-# Use ThreadPoolExecutor to make concurrent requests
-with ThreadPoolExecutor(max_workers=2) as executor:
-    futures = []
-    for index, row in df.iterrows():
-        url = row['urls']
-        futures.append(executor.submit(make_request, url))
+def process_chunk(chunk, executor):
+    """Processes a chunk of the DataFrame, adding the fetched URL content."""
+    # Fetch the URLs concurrently and add the response as a new column
+    chunk['response'] = list(executor.map(fetch_url, chunk['urls']))
+    return chunk
 
-    # Get the results and update the DataFrame
-    for index, future in enumerate(futures):
-        (link unavailable)[index, 'response'] = future.result()
+def process_csv_to_parquet(input_csv, output_parquet, delimiter="|", chunk_size=1000, max_workers=2):
+    """Reads a CSV file in chunks, fetches URL data concurrently, and writes to a Parquet file."""
+    
+    # Check if the Parquet file already exists
+    file_exists = os.path.exists(output_parquet)
 
-# Write the updated DataFrame to a Parquet file using append
-table = pq.Table.from_pandas(df)
-pq.write_to_dataset(table, 'output.parquet', compression='snappy', use_dictionary=True, chunksize=10000)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for chunk in pd.read_csv(input_csv, delimiter=delimiter, chunksize=chunk_size):
+            # Process the chunk and fetch URL responses
+            processed_chunk = process_chunk(chunk, executor)
+            
+            # Convert to PyArrow Table
+            table = pa.Table.from_pandas(processed_chunk)
+            
+            if not file_exists:
+                # If the file doesn't exist, write the first chunk as a new file
+                pq.write_table(table, output_parquet, compression="snappy")
+                file_exists = True
+            else:
+                # If the file exists, append the chunk
+                pq.write_table(table, output_parquet, compression="snappy", append=True)
+
+# Usage
+input_csv = "input.csv"  # Path to your input CSV
+output_parquet = "output.parquet"  # Path to save the Parquet file
+process_csv_to_parquet(input_csv, output_parquet)
