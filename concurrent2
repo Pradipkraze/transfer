@@ -1,0 +1,31 @@
+import pandas as pd
+import requests
+from concurrent.futures import ThreadPoolExecutor
+
+# Define file paths
+input_file = '/mnt/data/test.csv'
+output_file = '/mnt/data/updated_test.csv'
+
+# Function to make GET requests and return response text
+def fetch_url(url):
+    try:
+        response = requests.get(url, timeout=10)
+        return response.text
+    except Exception as e:
+        return str(e)
+
+# Process the file in chunks
+chunk_size = 100  # Adjust based on available memory
+with pd.read_csv(input_file, delimiter='|', chunksize=chunk_size) as reader:
+    # Open the output file in write mode to write headers initially
+    for i, chunk in enumerate(reader):
+        # Process URLs in the current chunk
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            chunk['response_body'] = list(executor.map(fetch_url, chunk['urls']))
+
+        # Append to the output file
+        mode = 'w' if i == 0 else 'a'  # Write for the first chunk, append thereafter
+        header = (i == 0)  # Write header only for the first chunk
+        chunk.to_csv(output_file, sep='|', index=False, mode=mode, header=header)
+
+output_file
