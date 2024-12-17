@@ -1,34 +1,30 @@
-Here's an example code snippet that reads a CSV file delimited by `|`, creates a Pandas DataFrame, hits the URLs in the `URLs` column using the `requests` library, and saves the response in a new column:
-```
 import pandas as pd
 import requests
 
-Read the CSV file delimited by |
-df = pd.read_csv('input.csv', delimiter='|')
+# Step 1: Read the CSV file delimited by "|"
+input_csv = "test.csv"
+df = pd.read_csv(input_csv, delimiter="|")
 
-Create a new column to store the response
-df['Response'] = ''
+# Step 2: Ensure the 'URLs' column exists
+if 'URLs' not in df.columns:
+    raise ValueError("The input CSV must contain a column named 'URLs'.")
 
-Hit the URLs and save the response
-for index, row in df.iterrows():
-    url = row['URLs']
+# Step 3: Define a function to get the response from each URL
+def fetch_url_response(url):
     try:
-        response = requests.get(url)
-        (link unavailable)[index, 'Response'] = response.text
-    except requests.exceptions.RequestException as e:
-        (link unavailable)[index, 'Response'] = str(e)
+        # Send a GET request to the URL
+        response = requests.get(url, timeout=10)  # Timeout of 10 seconds
+        # Return the HTTP status code
+        return response.status_code
+    except requests.RequestException as e:
+        # Return the error as a string if the request fails
+        return f"Error: {str(e)}"
 
-Write the updated DataFrame to a new CSV file
-df.to_csv('output.csv', delimiter='|', index=False)
-```
-Here's how the code works:
+# Step 4: Apply the function to the 'URLs' column and save responses in a new column
+df['Response'] = df['URLs'].apply(fetch_url_response)
 
-1. We read the input CSV file delimited by `|` using `pd.read_csv`.
-2. We create a new column `Response` to store the response from hitting the URLs.
-3. We iterate through each row in the DataFrame using `df.iterrows`.
-4. For each row, we extract the URL from the `URLs` column and hit it using `requests.get`.
-5. We save the response text in the `Response` column.
-6. If there's an error hitting the URL, we save the error message in the `Response` column.
-7. Finally, we write the updated DataFrame to a new CSV file using `df.to_csv`.
+# Step 5: Save the updated DataFrame back to a CSV file, delimited by "|"
+output_csv = "test_output.csv"
+df.to_csv(output_csv, index=False, sep="|")
 
-Note that this code assumes that the `URLs` column contains valid URLs that can be hit using `requests.get`. Also, the response text is saved in the `Response` column, which may not be suitable for large responses. You may want to modify the code to handle these cases.
+print(f"Processed CSV saved to {output_csv}")
