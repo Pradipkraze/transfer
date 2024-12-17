@@ -1,0 +1,71 @@
+import pandas as pd
+import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+# Function to fetch the content of a URL
+def fetch_url(url):
+    try:
+        response = requests.get(url, timeout=10)  # Set a timeout to avoid hanging requests
+        return response.text
+    except Exception as e:
+        return f"Error: {e}"
+
+# Function to process URLs in batches and append to a Parquet file
+def process_and_append_to_parquet(input_file, output_file, batch_size=100, num_workers=5):
+    # Read the CSV file in chunks
+    chunk_iter = pd.read_csv(input_file, delimiter="|", chunksize=batch_size)
+
+    # Open a ParquetWriter
+    writer = None
+
+    try:
+        for chunk in chunk_iter:
+            if "urls" not in chunk.columns:
+                raise ValueError("Column 'urls' not found in the CSV file.")
+
+            # Drop NaN values from the URLs column
+            urls = chunk["urls"].dropna().tolist()
+
+            # List to store responses
+            responses = []
+
+            # Use ThreadPoolExecutor for concurrency
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                future_to_url = {executor.submit(fetch_url, url): url for url in urls}
+
+                # Collect responses as they complete
+                for future in as_completed(future_to_url):
+                    try:
+                        responses.append(future.result())
+                    except Exception as e:
+                        responses.append(f"Error: {e}")
+
+            # Create a DataFrame with the responses
+            chunk["response_body"] = pd.Series(responses)
+
+            # Convert the DataFrame to Arrow Table
+            table = pa.Table.from_pandas(chunk)
+
+            # Initialize the writer if it doesn't exist
+            if writer is None:
+                writer = pq.ParquetWriter(output_file, table.schema)
+
+            # Write the chunk to the Parquet file
+            writer.write_table(table)
+
+    finally:
+        # Close the Parquet writer
+        if writer is not None:
+            writer.close()
+
+# Main function
+def main():
+    input_file = "test.csv"
+    output_file = "output.parquet"
+    process_and_append_to_parquet(input_file, output_file)
+
+# Execute the main function
+if __name__ == "__main__":
+    main()
