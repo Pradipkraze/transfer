@@ -1,45 +1,41 @@
 import geopandas as gpd
 import os
-import pyarrow as pa
-import pyarrow.parquet as pq
+from shapely import wkt
+import pandas as pd
 
-# Define paths
-input_folder = "overture"  # Folder containing GeoParquet files
-usa_shp_path = "data_folder/usa.shp"  # Path to the USA shapefile
-output_parquet = "overlapping_polygons.parquet"  # Output Parquet file
+# Paths to the folders
+input_folder = "path_to_input_folder"
+data_folder = "path_to_data_folder"
+output_parquet = "output_file.parquet"
+usa_shapefile = os.path.join(data_folder, "usa.shp")
 
-# Load the USA shapefile
-usa_gdf = gpd.read_file(usa_shp_path)
-usa_geometry = usa_gdf.unary_union  # Combine into a single geometry for efficient checking
+# Read the USA shapefile to check for overlaps
+usa = gpd.read_file(usa_shapefile)
 
-# Initialize the ParquetWriter
-writer = None
+# Ensure the CRS of the USA shapefile and GeoParquet files match
+usa = usa.to_crs(epsg=4326)
 
-try:
-    # Iterate through the GeoParquet files in the folder
-    for filename in os.listdir(input_folder):
-        if filename.endswith(".parquet"):
-            file_path = os.path.join(input_folder, filename)
-            
-            # Read the GeoParquet file in chunks
-            polygons_gdf = gpd.read_parquet(file_path)
-            
-            # Filter polygons that overlap with the USA geometry
-            overlapping_polygons = polygons_gdf[polygons_gdf.geometry.intersects(usa_geometry)]
-            
-            if not overlapping_polygons.empty:
-                # Break into smaller chunks (batch size: 10,000 rows)
-                chunk_size = 10000
-                for i in range(0, len(overlapping_polygons), chunk_size):
-                    chunk = overlapping_polygons.iloc[i:i+chunk_size]
-                    table = pa.Table.from_pandas(chunk)
-                    
-                    # Initialize or append using the same writer
-                    if writer is None:
-                        writer = pq.ParquetWriter(output_parquet, table.schema, compression='snappy')
-                    
-                    writer.write_table(table)
-finally:
-    # Close the writer after processing all files
-    if writer is not None:
-        writer.close()
+# Iterate over each GeoParquet file in the input folder
+for filename in os.listdir(input_folder):
+    if filename.endswith(".parquet"):
+        file_path = os.path.join(input_folder, filename)
+        
+        # Read the current GeoParquet file
+        gdf = gpd.read_parquet(file_path)
+        
+        # Convert WKT column to geometry (assuming the column name is 'wkt')
+        gdf['geometry'] = gdf['wkt'].apply(wkt.loads)
+        gdf = gpd.GeoDataFrame(gdf, geometry='geometry', crs='EPSG:4326')
+        
+        # Check for overlaps with USA polygons
+        overlap_gdf = gdf[gdf.geometry.intersects(usa.unary_union)]
+        
+        # Append the results to the output Parquet file
+        if not overlap_gdf.empty:
+            # Append mode for large data
+            if os.path.exists(output_parquet):
+                overlap_gdf.to_parquet(output_parquet, append=True, index=False)
+            else:
+                overlap_gdf.to_parquet(output_parquet, index=False)
+
+print("Processing completed and data appended to Parquet.")
