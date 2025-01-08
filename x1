@@ -2,25 +2,30 @@ import geopandas as gpd
 import pandas as pd
 import os
 
-# Define input and output folders
-input_folder = 'path/to/input/folder'
-data_folder = 'path/to/data/folder'
-output_folder = 'path/to/output/folder'
+# Define paths
+input_folder = "overture"  # Folder containing GeoParquet files
+usa_shp_path = "data_folder/usa.shp"  # Path to the USA shapefile
+output_parquet = "overlapping_polygons.parquet"  # Output Parquet file
 
-# Load USA shapefile
-usa_gdf = gpd.read_file(os.path.join(data_folder, 'usa.shp'))
+# Load the USA shapefile
+usa_gdf = gpd.read_file(usa_shp_path)
+usa_geometry = usa_gdf.unary_union  # Combine into a single geometry for efficient checking
 
-# Iterate through geoparquet files in input folder
-for file in os.listdir(input_folder):
-    if file.endswith('.parquet'):
-        # Load geoparquet file
-        gdf = gpd.read_parquet(os.path.join(input_folder, file))
+# Create or clear the output file
+if os.path.exists(output_parquet):
+    os.remove(output_parquet)
 
-        # Check for overlaps with USA shapefile
-        overlaps = gpd.sjoin(gdf, usa_gdf, how='inner', op='intersects')
-
-        # Write overlapping polygons to parquet file
-        if not os.path.exists(output_folder):
-            os.makedirs(output_folder)
-        output_file = os.path.join(output_folder, f'{file[:-8]}_overlaps.parquet')
-        overlaps.to_parquet(output_file, mode='a', compression='snappy')
+# Iterate through the GeoParquet files in the folder
+for filename in os.listdir(input_folder):
+    if filename.endswith(".parquet"):
+        file_path = os.path.join(input_folder, filename)
+        
+        # Read the GeoParquet file in chunks for memory efficiency
+        polygons_gdf = gpd.read_parquet(file_path)
+        
+        # Filter polygons that overlap with the USA geometry
+        overlapping_polygons = polygons_gdf[polygons_gdf.geometry.intersects(usa_geometry)]
+        
+        # Append overlapping polygons to the output Parquet file
+        if not overlapping_polygons.empty:
+            overlapping_polygons.to_parquet(output_parquet, engine="pyarrow", compression="snappy", index=False, append=True)
