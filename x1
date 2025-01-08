@@ -1,49 +1,26 @@
 import geopandas as gpd
-import os
-from shapely import wkt
 import pandas as pd
-import pyarrow.parquet as pq
-import pyarrow as pa
+import os
 
-# Paths to the folders
-input_folder = "path_to_input_folder"
-data_folder = "path_to_data_folder"
-output_parquet = "output_file.parquet"
-usa_shapefile = os.path.join(data_folder, "usa.shp")
+# Define input and output folders
+input_folder = 'path/to/input/folder'
+data_folder = 'path/to/data/folder'
+output_folder = 'path/to/output/folder'
 
-# Read the USA shapefile to check for overlaps
-usa = gpd.read_file(usa_shapefile)
+# Load USA shapefile
+usa_gdf = gpd.read_file(os.path.join(data_folder, 'usa.shp'))
 
-# Ensure the CRS of the USA shapefile and GeoParquet files match
-usa = usa.to_crs(epsg=4326)
+# Iterate through geoparquet files in input folder
+for file in os.listdir(input_folder):
+    if file.endswith('.parquet'):
+        # Load geoparquet file
+        gdf = gpd.read_parquet(os.path.join(input_folder, file))
 
-# Function to write or append to Parquet using pyarrow
-def write_or_append_to_parquet(gdf, output_file):
-    if not os.path.exists(output_file):
-        # If the file doesn't exist, create it
-        gdf.to_parquet(output_file, engine='pyarrow', index=False)
-    else:
-        # Append to existing Parquet file
-        table = pa.Table.from_pandas(gdf)
-        pq.write_to_dataset(table, output_file, append=True)
+        # Check for overlaps with USA shapefile
+        overlaps = gpd.sjoin(gdf, usa_gdf, how='inner', op='intersects')
 
-# Iterate over each GeoParquet file in the input folder
-for filename in os.listdir(input_folder):
-    if filename.endswith(".parquet"):
-        file_path = os.path.join(input_folder, filename)
-        
-        # Read the current GeoParquet file
-        gdf = gpd.read_parquet(file_path)
-        
-        # Convert WKT column to geometry (assuming the column name is 'wkt')
-        gdf['geometry'] = gdf['wkt'].apply(wkt.loads)
-        gdf = gpd.GeoDataFrame(gdf, geometry='geometry', crs='EPSG:4326')
-        
-        # Check for overlaps with USA polygons
-        overlap_gdf = gdf[gdf.geometry.intersects(usa.unary_union)]
-        
-        # Write or append the results to the output Parquet file
-        if not overlap_gdf.empty:
-            write_or_append_to_parquet(overlap_gdf, output_parquet)
-
-print("Processing completed and data appended to Parquet.")
+        # Write overlapping polygons to parquet file
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
+        output_file = os.path.join(output_folder, f'{file[:-8]}_overlaps.parquet')
+        overlaps.to_parquet(output_file, mode='a', compression='snappy')
