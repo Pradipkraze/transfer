@@ -1,31 +1,35 @@
 import geopandas as gpd
-import pandas as pd
 import os
+import glob
 
-# Define paths
-input_folder = "overture"  # Folder containing GeoParquet files
-usa_shp_path = "data_folder/usa.shp"  # Path to the USA shapefile
-output_parquet = "overlapping_polygons.parquet"  # Output Parquet file
+# Path to the folder containing GeoParquet files and the USA shapefile
+overture_folder = "overture"
+data_folder = "data_folder"
+output_folder = "output"
 
-# Load the USA shapefile
-usa_gdf = gpd.read_file(usa_shp_path)
-usa_geometry = usa_gdf.unary_union  # Combine into a single geometry for efficient checking
+# Load the USA shapefile (assuming it has a simple polygon geometry)
+usa_shapefile = os.path.join(data_folder, "usa.shp")
+usa = gpd.read_file(usa_shapefile)
 
-# Create or clear the output file
-if os.path.exists(output_parquet):
-    os.remove(output_parquet)
+# Ensure the CRS (coordinate reference system) is the same for comparison
+usa = usa.to_crs(epsg=4326)
 
-# Iterate through the GeoParquet files in the folder
-for filename in os.listdir(input_folder):
-    if filename.endswith(".parquet"):
-        file_path = os.path.join(input_folder, filename)
-        
-        # Read the GeoParquet file in chunks for memory efficiency
-        polygons_gdf = gpd.read_parquet(file_path)
-        
-        # Filter polygons that overlap with the USA geometry
-        overlapping_polygons = polygons_gdf[polygons_gdf.geometry.intersects(usa_geometry)]
-        
-        # Append overlapping polygons to the output Parquet file
-        if not overlapping_polygons.empty:
-            overlapping_polygons.to_parquet(output_parquet, engine="pyarrow", compression="snappy", index=False, append=True)
+# Get a list of GeoParquet files in the overture folder
+parquet_files = glob.glob(os.path.join(overture_folder, "*.parquet"))
+
+# Iterate over each GeoParquet file
+for parquet_file in parquet_files:
+    # Read the GeoParquet file (with low memory usage by using chunksize)
+    gdf = gpd.read_parquet(parquet_file)
+    
+    # Ensure the CRS matches for comparison
+    gdf = gdf.to_crs(epsg=4326)
+
+    # Use .intersects() to check for overlap with the USA boundary
+    overlapping = gdf[gdf.geometry.intersects(usa.unary_union)]
+    
+    # If there are overlapping polygons, save them to a new GeoParquet file
+    if not overlapping.empty:
+        output_file = os.path.join(output_folder, os.path.basename(parquet_file))
+        overlapping.to_parquet(output_file)
+
