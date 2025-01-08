@@ -1,0 +1,51 @@
+import geopandas as gpd
+import os
+from shapely.geometry import Polygon
+
+# Define the bounding box polygon
+bbox_polygon = Polygon([
+    (-121.6, 46.45),
+    (-86.65, 46.45),
+    (-86.65, 31.86),
+    (-121.6, 31.86),
+    (-121.6, 46.45)
+])
+
+# Paths
+input_folder = "overture"
+usa_shapefile = "usa.shp"
+output_file = "filtered_data.parquet"
+
+# Read the USA shapefile
+usa_gdf = gpd.read_file(usa_shapefile)
+
+# Function to process each GeoParquet file
+def process_geoparquet_file(file_path):
+    # Read the GeoParquet file
+    gdf = gpd.read_parquet(file_path)
+
+    # Check if the GeoDataFrame intersects the bounding box
+    gdf = gdf[gdf.intersects(bbox_polygon)]
+
+    # If there are matching records, filter by USA shapefile
+    if not gdf.empty:
+        gdf = gdf[gdf.intersects(usa_gdf.unary_union)]
+
+    return gdf
+
+# Process all GeoParquet files in the folder
+for file_name in os.listdir(input_folder):
+    if file_name.endswith(".parquet"):
+        file_path = os.path.join(input_folder, file_name)
+        
+        # Process the file
+        filtered_gdf = process_geoparquet_file(file_path)
+
+        # Append or write to the output Parquet file
+        if not filtered_gdf.empty:
+            if os.path.exists(output_file):
+                filtered_gdf.to_parquet(output_file, engine='pyarrow', compression='snappy', append=True)
+            else:
+                filtered_gdf.to_parquet(output_file, engine='pyarrow', compression='snappy')
+
+print(f"Filtered data has been written to {output_file}")
