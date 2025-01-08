@@ -1,35 +1,77 @@
 import geopandas as gpd
 import os
-import glob
+import pyarrow.parquet as pq
+import pyarrow as pa
 
-# Path to the folder containing GeoParquet files and the USA shapefile
-overture_folder = "overture"
-data_folder = "data_folder"
-output_folder = "output"
+def process_geoparquet_files(overture_folder, usa_shapefile, output_file):
+    """
+    Processes GeoParquet files, checks for overlaps with a USA shapefile,
+    and writes overlapping polygons to a Parquet file. Optimized for memory usage.
 
-# Load the USA shapefile (assuming it has a simple polygon geometry)
-usa_shapefile = os.path.join(data_folder, "usa.shp")
-usa = gpd.read_file(usa_shapefile)
+    Args:
+        overture_folder: Path to the folder containing GeoParquet files.
+        usa_shapefile: Path to the USA shapefile.
+        output_file: Path to the output Parquet file.
+    """
 
-# Ensure the CRS (coordinate reference system) is the same for comparison
-usa = usa.to_crs(epsg=4326)
+    try:
+        usa = gpd.read_file(usa_shapefile)
+        # Project USA to a suitable CRS for accurate intersection checks (e.g., a US-focused projected CRS)
+        usa = usa.to_crs("EPSG:5070") # Example: US National Atlas Equal Area
 
-# Get a list of GeoParquet files in the overture folder
-parquet_files = glob.glob(os.path.join(overture_folder, "*.parquet"))
+    except Exception as e:
+        print(f"Error reading USA shapefile: {e}")
+        return
 
-# Iterate over each GeoParquet file
-for parquet_file in parquet_files:
-    # Read the GeoParquet file (with low memory usage by using chunksize)
-    gdf = gpd.read_parquet(parquet_file)
-    
-    # Ensure the CRS matches for comparison
-    gdf = gdf.to_crs(epsg=4326)
+    first_overlap = True # Flag for creating the output file
+    output_table = None
 
-    # Use .intersects() to check for overlap with the USA boundary
-    overlapping = gdf[gdf.geometry.intersects(usa.unary_union)]
-    
-    # If there are overlapping polygons, save them to a new GeoParquet file
-    if not overlapping.empty:
-        output_file = os.path.join(output_folder, os.path.basename(parquet_file))
-        overlapping.to_parquet(output_file)
+    for filename in os.listdir(overture_folder):
+        if filename.endswith(".parquet"):
+            filepath = os.path.join(overture_folder, filename)
+            print(f"Processing: {filepath}")
 
+            try:
+                # Use pyarrow for memory-efficient reading of GeoParquet
+                table = pq.read_table(filepath)
+                gdf = gpd.GeoDataFrame(table)
+
+                # Project the GeoDataFrame to the same CRS as the USA shapefile
+                gdf = gdf.to_crs(usa.crs)
+
+                # Efficiently find overlaps using sjoin (spatial join)
+                overlapping = gpd.sjoin(gdf, usa, how='inner', predicate='intersects')
+
+                if not overlapping.empty:
+                    # Convert to pyarrow table for efficient appending.
+                    overlapping_table = pa.Table.from_pandas(overlapping)
+
+                    if first_overlap:
+                        output_table = overlapping_table
+                        first_overlap = False
+                    else:
+                        output_table = pa.concat_tables([output_table, overlapping_table])
+
+                # Explicitly delete large objects to free memory ASAP
+                del gdf, table, overlapping,overlapping_table
+            except Exception as e:
+                print(f"Error processing {filepath}: {e}")
+                continue
+
+    if output_table:
+        try:
+          pq.write_table(output_table, output_file)
+          print(f"Overlapping polygons written to: {output_file}")
+        except Exception as e:
+            print(f"Error writing output file: {e}")
+        finally:
+            del output_table # Explicitly delete after writing.
+    else:
+        print("No overlapping polygons found.")
+
+# Example Usage
+overture_folder = "overture"  # Replace with your folder path
+usa_shapefile = "data_folder/usa.shp"  # Replace with your shapefile path
+output_file = "overlapping_polygons.parquet"
+
+process_geoparquet_files(overture_folder, usa_shapefile, output_file)
