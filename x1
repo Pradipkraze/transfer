@@ -1,43 +1,31 @@
-import os
 import geopandas as gpd
-from shapely.geometry import box
-from pyarrow import parquet as pq
-from pyarrow import Table
+import pandas as pd
+import os
 
-# Define folder paths
-input_folder = "overture"
-data_folder = "data_folder"
-output_file = "overlapping_polygons.parquet"
+# Define paths
+input_folder = "overture"  # Folder containing GeoParquet files
+usa_shp_path = "data_folder/usa.shp"  # Path to the USA shapefile
+output_parquet = "overlapping_polygons.parquet"  # Output Parquet file
 
-# Load USA shapefile (optimized by reading only geometry if available)
-usa_shapefile = os.path.join(data_folder, "usa.shp")
-usa_gdf = gpd.read_file(usa_shapefile)
-usa_geometry = usa_gdf.unary_union  # Combine into a single geometry for faster checks
+# Load the USA shapefile
+usa_gdf = gpd.read_file(usa_shp_path)
+usa_geometry = usa_gdf.unary_union  # Combine into a single geometry for efficient checking
 
-# Initialize an empty Parquet file if it doesn't exist
-if not os.path.exists(output_file):
-    schema = None  # Placeholder for schema initialization
+# Create or clear the output file
+if os.path.exists(output_parquet):
+    os.remove(output_parquet)
 
-# Process GeoParquet files one by one
-for file_name in os.listdir(input_folder):
-    if file_name.endswith(".parquet"):
-        file_path = os.path.join(input_folder, file_name)
+# Iterate through the GeoParquet files in the folder
+for filename in os.listdir(input_folder):
+    if filename.endswith(".parquet"):
+        file_path = os.path.join(input_folder, filename)
         
-        # Read the GeoParquet file in chunks (to handle large files)
-        for chunk in gpd.read_file(file_path, rows=100000, engine="pyarrow", chunksize=100000):
-            # Perform spatial filtering using bounding box for early rejection
-            usa_bbox = box(*usa_geometry.bounds)
-            chunk_filtered = chunk[chunk.intersects(usa_bbox)]
-
-            # Further refine by checking actual intersection with USA geometry
-            overlapping_polygons = chunk_filtered[chunk_filtered.intersects(usa_geometry)]
-
-            # Append the overlapping polygons to the output file
-            if not overlapping_polygons.empty:
-                table = Table.from_pandas(overlapping_polygons)
-                if os.path.exists(output_file):
-                    pq.write_table(table, output_file, append=True)
-                else:
-                    pq.write_table(table, output_file)
-
-print("Processing complete. Overlapping polygons saved to", output_file)
+        # Read the GeoParquet file in chunks for memory efficiency
+        polygons_gdf = gpd.read_parquet(file_path)
+        
+        # Filter polygons that overlap with the USA geometry
+        overlapping_polygons = polygons_gdf[polygons_gdf.geometry.intersects(usa_geometry)]
+        
+        # Append overlapping polygons to the output Parquet file
+        if not overlapping_polygons.empty:
+            overlapping_polygons.to_parquet(output_parquet, engine="pyarrow", compression="snappy", index=False, append=True)
