@@ -1,7 +1,7 @@
 import geopandas as gpd
 import os
-from pyarrow import parquet as pq
-from pyarrow import Table
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 # Define paths
 input_folder = "overture"  # Folder containing GeoParquet files
@@ -12,29 +12,33 @@ output_parquet = "overlapping_polygons.parquet"  # Output Parquet file
 usa_gdf = gpd.read_file(usa_shp_path)
 usa_geometry = usa_gdf.unary_union  # Combine into a single geometry for efficient checking
 
-# Initialize the output file if it doesn't exist
-if os.path.exists(output_parquet):
-    os.remove(output_parquet)
+# Initialize the ParquetWriter
+writer = None
 
-# Iterate through the GeoParquet files in the folder
-for filename in os.listdir(input_folder):
-    if filename.endswith(".parquet"):
-        file_path = os.path.join(input_folder, filename)
-        
-        # Read the GeoParquet file
-        polygons_gdf = gpd.read_parquet(file_path)
-        
-        # Filter polygons that overlap with the USA geometry
-        overlapping_polygons = polygons_gdf[polygons_gdf.geometry.intersects(usa_geometry)]
-        
-        if not overlapping_polygons.empty:
-            # Convert to PyArrow Table for appending
-            table = Table.from_pandas(overlapping_polygons)
+try:
+    # Iterate through the GeoParquet files in the folder
+    for filename in os.listdir(input_folder):
+        if filename.endswith(".parquet"):
+            file_path = os.path.join(input_folder, filename)
             
-            if not os.path.exists(output_parquet):
-                # Write the first batch
-                pq.write_table(table, output_parquet, compression='snappy')
-            else:
-                # Append subsequent batches
-                with pq.ParquetWriter(output_parquet, table.schema, compression='snappy') as writer:
-                    writer.write_table(table)
+            # Read the GeoParquet file
+            polygons_gdf = gpd.read_parquet(file_path)
+            
+            # Filter polygons that overlap with the USA geometry
+            overlapping_polygons = polygons_gdf[polygons_gdf.geometry.intersects(usa_geometry)]
+            
+            if not overlapping_polygons.empty:
+                # Convert to PyArrow Table
+                table = pa.Table.from_pandas(overlapping_polygons)
+                
+                # Initialize or append using the same writer
+                if writer is None:
+                    # Open the writer with the schema of the first table
+                    writer = pq.ParquetWriter(output_parquet, table.schema, compression='snappy')
+                
+                # Write the table to the Parquet file
+                writer.write_table(table)
+finally:
+    # Close the writer after processing all files
+    if writer is not None:
+        writer.close()
