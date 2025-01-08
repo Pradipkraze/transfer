@@ -2,6 +2,8 @@ import geopandas as gpd
 import os
 from shapely import wkt
 import pandas as pd
+import pyarrow.parquet as pq
+import pyarrow as pa
 
 # Paths to the folders
 input_folder = "path_to_input_folder"
@@ -14,6 +16,16 @@ usa = gpd.read_file(usa_shapefile)
 
 # Ensure the CRS of the USA shapefile and GeoParquet files match
 usa = usa.to_crs(epsg=4326)
+
+# Function to write or append to Parquet using pyarrow
+def write_or_append_to_parquet(gdf, output_file):
+    if not os.path.exists(output_file):
+        # If the file doesn't exist, create it
+        gdf.to_parquet(output_file, engine='pyarrow', index=False)
+    else:
+        # Append to existing Parquet file
+        table = pa.Table.from_pandas(gdf)
+        pq.write_to_dataset(table, output_file, append=True)
 
 # Iterate over each GeoParquet file in the input folder
 for filename in os.listdir(input_folder):
@@ -30,12 +42,8 @@ for filename in os.listdir(input_folder):
         # Check for overlaps with USA polygons
         overlap_gdf = gdf[gdf.geometry.intersects(usa.unary_union)]
         
-        # Append the results to the output Parquet file
+        # Write or append the results to the output Parquet file
         if not overlap_gdf.empty:
-            # Append mode for large data
-            if os.path.exists(output_parquet):
-                overlap_gdf.to_parquet(output_parquet, append=True, index=False)
-            else:
-                overlap_gdf.to_parquet(output_parquet, index=False)
+            write_or_append_to_parquet(overlap_gdf, output_parquet)
 
 print("Processing completed and data appended to Parquet.")
