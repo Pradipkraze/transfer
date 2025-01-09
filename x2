@@ -1,0 +1,49 @@
+import os
+import sqlite3
+import pandas as pd
+import geopandas as gpd
+from shapely import wkt
+
+# Directories and file paths
+input_folder = "path/to/input_folder"
+usa_shapefile = "path/to/usa.shp"
+sqlite_file = "path/to/output.sqlite"
+output_parquet = "path/to/output.parquet"
+
+# Read USA shapefile
+usa_gdf = gpd.read_file(usa_shapefile)
+usa_gdf = usa_gdf.to_crs(epsg=4326)  # Adjust CRS if necessary
+
+# Create or connect to the SQLite database
+conn = sqlite3.connect(sqlite_file)
+
+# Process each Parquet file in the input folder
+for file_name in os.listdir(input_folder):
+    if file_name.endswith(".parquet"):
+        # Load Parquet file
+        file_path = os.path.join(input_folder, file_name)
+        df = pd.read_parquet(file_path)
+
+        # Convert to GeoDataFrame
+        df['geometry'] = df['geometry'].apply(wkt.loads)
+        gdf = gpd.GeoDataFrame(df, geometry='geometry', crs="EPSG:4326")  # Adjust CRS if necessary
+
+        # Find intersecting features
+        intersecting_gdf = gdf[gdf.intersects(usa_gdf.unary_union)]
+
+        # Write intersecting features to SQLite
+        if not intersecting_gdf.empty:
+            intersecting_gdf.to_sql(
+                "intersecting_features", conn, if_exists="append", index=False
+            )
+
+# Read from SQLite and write to Parquet
+query = "SELECT * FROM intersecting_features"
+output_df = pd.read_sql(query, conn)
+output_gdf = gpd.GeoDataFrame(output_df, geometry=output_df['geometry'].apply(wkt.loads), crs="EPSG:4326")
+output_gdf.to_parquet(output_parquet, index=False, engine="pyarrow")
+
+# Close SQLite connection
+conn.close()
+
+print("Processing complete!")
