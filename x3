@@ -1,32 +1,32 @@
-import os
 import pyarrow.parquet as pq
 import pyarrow as pa
+import os
 
-# Folder containing the Parquet files
-input_folder = "apple"
-output_file = "merged_output.parquet"
-
-def merge_parquet_files(input_folder, output_file):
-    # List all Parquet files in the input folder
-    parquet_files = [os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.endswith(".parquet")]
+def combine_large_parquet_files(input_folder, output_folder, output_file_name):
+    os.makedirs(output_folder, exist_ok=True)
+    output_path = os.path.join(output_folder, output_file_name)
     
-    if not parquet_files:
-        raise ValueError("No Parquet files found in the specified folder.")
-
-    # Use an iterator to process files one by one to conserve memory
-    tables = []
-
-    for file in parquet_files:
-        # Read the Parquet file as a PyArrow table
-        table = pq.read_table(file)
-        tables.append(table)
+    writer = None
     
-    # Concatenate tables using pyarrow.concat_tables
-    merged_table = pa.concat_tables(tables)
+    # Iterate over all Parquet files
+    for file in os.listdir(input_folder):
+        if file.endswith(".parquet"):
+            file_path = os.path.join(input_folder, file)
+            table = pq.read_table(file_path)
+            
+            if writer is None:
+                # Create a new writer if not already initialized
+                writer = pq.ParquetWriter(output_path, table.schema)
+            
+            # Append data to the output file
+            writer.write_table(table)
 
-    # Write the merged table to a single Parquet file
-    pq.write_table(merged_table, output_file)
-    print(f"Successfully merged {len(parquet_files)} files into {output_file}")
+    if writer:
+        writer.close()
+        print(f"Combined file written to {output_path}")
 
-# Execute the function
-merge_parquet_files(input_folder, output_file)
+# Example usage
+input_folder = "input"
+output_folder = "outx"
+output_file_name = "combined.parquet"
+combine_large_parquet_files(input_folder, output_folder, output_file_name)
