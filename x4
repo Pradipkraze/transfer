@@ -1,0 +1,40 @@
+import os
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+# Folder containing Parquet files
+input_folder = "path/to/parquet/files"
+output_file = "path/to/output/unified.parquet"
+
+# Collect all Parquet file paths
+parquet_files = [os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.endswith(".parquet")]
+
+# Initialize an empty schema and DataFrame
+unified_columns = set()
+file_schemas = []
+
+# Pass 1: Collect all column names across files
+for file in parquet_files:
+    schema = pq.read_schema(file)
+    unified_columns.update(schema.names)
+    file_schemas.append(schema)
+
+unified_columns = sorted(unified_columns)  # Ensure a consistent column order
+
+# Pass 2: Process files one by one
+with pq.ParquetWriter(output_file, pa.schema([(col, pa.string()) for col in unified_columns])) as writer:
+    for file, schema in zip(parquet_files, file_schemas):
+        # Read file into a Pandas DataFrame
+        df = pd.read_parquet(file)
+
+        # Align columns to the unified schema
+        for col in unified_columns:
+            if col not in df.columns:
+                df[col] = None  # Add missing columns
+
+        df = df[unified_columns]  # Ensure correct column order
+
+        # Write to output Parquet file incrementally
+        table = pa.Table.from_pandas(df, schema=pa.schema([(col, pa.string()) for col in unified_columns]))
+        writer.write_table(table)
