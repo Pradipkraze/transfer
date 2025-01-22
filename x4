@@ -1,40 +1,36 @@
 import os
+import geopandas as gpd
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
-# Folder containing Parquet files
-input_folder = "path/to/parquet/files"
-output_file = "path/to/output/unified.parquet"
+def read_tab_files(folder_path, output_parquet_path):
+    # Initialize an empty list to store dataframes
+    dataframes = []
+    
+    # Iterate through all TAB files in the folder
+    for filename in os.listdir(folder_path):
+        if filename.endswith(".tab"):
+            file_path = os.path.join(folder_path, filename)
+            try:
+                # Read the TAB file into a GeoDataFrame
+                gdf = gpd.read_file(file_path)
+                
+                # Convert GeoDataFrame to DataFrame to handle attributes only
+                df = pd.DataFrame(gdf)
+                
+                # Append to the list
+                dataframes.append(df)
+            except Exception as e:
+                print(f"Error reading {filename}: {e}")
+    
+    # Concatenate all dataframes into a single DataFrame
+    combined_df = pd.concat(dataframes, ignore_index=True)
+    
+    # Write the combined DataFrame to a Parquet file
+    combined_df.to_parquet(output_parquet_path, engine="pyarrow", compression="snappy")
 
-# Collect all Parquet file paths
-parquet_files = [os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.endswith(".parquet")]
+# Folder containing TAB files and output Parquet file path
+folder_path = "path/to/tab/files"
+output_parquet_path = "output_data.parquet"
 
-# Initialize an empty schema and DataFrame
-unified_columns = set()
-file_schemas = []
-
-# Pass 1: Collect all column names across files
-for file in parquet_files:
-    schema = pq.read_schema(file)
-    unified_columns.update(schema.names)
-    file_schemas.append(schema)
-
-unified_columns = sorted(unified_columns)  # Ensure a consistent column order
-
-# Pass 2: Process files one by one
-with pq.ParquetWriter(output_file, pa.schema([(col, pa.string()) for col in unified_columns])) as writer:
-    for file, schema in zip(parquet_files, file_schemas):
-        # Read file into a Pandas DataFrame
-        df = pd.read_parquet(file)
-
-        # Align columns to the unified schema
-        for col in unified_columns:
-            if col not in df.columns:
-                df[col] = None  # Add missing columns
-
-        df = df[unified_columns]  # Ensure correct column order
-
-        # Write to output Parquet file incrementally
-        table = pa.Table.from_pandas(df, schema=pa.schema([(col, pa.string()) for col in unified_columns]))
-        writer.write_table(table)
+# Execute the function
+read_tab_files(folder_path, output_parquet_path)
