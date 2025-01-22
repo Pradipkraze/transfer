@@ -2,35 +2,36 @@ import os
 import geopandas as gpd
 import pandas as pd
 
-def read_tab_files(folder_path, output_parquet_path):
-    # Initialize an empty list to store dataframes
-    dataframes = []
-    
-    # Iterate through all TAB files in the folder
+def process_tab_files(folder_path, output_parquet_path):
+    # Check if the output Parquet file already exists
+    if os.path.exists(output_parquet_path):
+        os.remove(output_parquet_path)  # Remove existing file to avoid duplicates
+
     for filename in os.listdir(folder_path):
         if filename.endswith(".tab"):
             file_path = os.path.join(folder_path, filename)
             try:
                 # Read the TAB file into a GeoDataFrame
                 gdf = gpd.read_file(file_path)
-                
-                # Convert GeoDataFrame to DataFrame to handle attributes only
+
+                # Convert GeoDataFrame to DataFrame for processing
                 df = pd.DataFrame(gdf)
-                
-                # Append to the list
-                dataframes.append(df)
+
+                # Write to Parquet, append mode using batches
+                df.to_parquet(
+                    output_parquet_path,
+                    engine="pyarrow",
+                    compression="snappy",
+                    index=False,
+                    append=True,
+                )
+                print(f"Processed {filename} and appended to Parquet.")
             except Exception as e:
-                print(f"Error reading {filename}: {e}")
-    
-    # Concatenate all dataframes into a single DataFrame
-    combined_df = pd.concat(dataframes, ignore_index=True)
-    
-    # Write the combined DataFrame to a Parquet file
-    combined_df.to_parquet(output_parquet_path, engine="pyarrow", compression="snappy")
+                print(f"Error processing {filename}: {e}")
 
 # Folder containing TAB files and output Parquet file path
 folder_path = "path/to/tab/files"
 output_parquet_path = "output_data.parquet"
 
 # Execute the function
-read_tab_files(folder_path, output_parquet_path)
+process_tab_files(folder_path, output_parquet_path)
