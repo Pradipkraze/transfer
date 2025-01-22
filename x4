@@ -1,37 +1,107 @@
 import os
-import geopandas as gpd
 import pandas as pd
 
-def process_tab_files(folder_path, output_parquet_path):
-    # Check if the output Parquet file already exists
-    if os.path.exists(output_parquet_path):
-        os.remove(output_parquet_path)  # Remove existing file to avoid duplicates
+def convert_tab_to_parquet(input_folder, output_folder):
+    """
+    Reads .tab files from the input folder, converts them to DataFrames,
+    and writes them as .parquet files to the output folder.
 
-    for filename in os.listdir(folder_path):
-        if filename.endswith(".tab"):
-            file_path = os.path.join(folder_path, filename)
+    Parameters:
+    - input_folder: str, path to the folder containing .tab files
+    - output_folder: str, path to the folder where .parquet files will be saved
+    """
+    # Ensure the output folder exists
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Iterate over all files in the input folder
+    for filename in os.listdir(input_folder):
+        if filename.endswith('.tab'):
+            file_path = os.path.join(input_folder, filename)
+            
+            # Read the .tab file into a DataFrame
             try:
-                # Read the TAB file into a GeoDataFrame
-                gdf = gpd.read_file(file_path)
-
-                # Convert GeoDataFrame to DataFrame for processing
-                df = pd.DataFrame(gdf)
-
-                # Write to Parquet, append mode using batches
-                df.to_parquet(
-                    output_parquet_path,
-                    engine="pyarrow",
-                    compression="snappy",
-                    index=False,
-                    append=True,
-                )
-                print(f"Processed {filename} and appended to Parquet.")
+                df = pd.read_csv(file_path, sep='\t')
+                
+                # Create the output file name by replacing .tab with .parquet
+                output_file = os.path.join(output_folder, filename.replace('.tab', '.parquet'))
+                
+                # Write the DataFrame to a parquet file
+                df.to_parquet(output_file, index=False)
+                
+                print(f"Converted {filename} to {output_file}")
             except Exception as e:
-                print(f"Error processing {filename}: {e}")
+                print(f"Failed to process {filename}: {e}")
 
-# Folder containing TAB files and output Parquet file path
-folder_path = "path/to/tab/files"
-output_parquet_path = "output_data.parquet"
+# Example usage:
+input_folder = 'path/to/your/tab/files'
+output_folder = 'path/to/save/parquet/files'
 
-# Execute the function
-process_tab_files(folder_path, output_parquet_path)
+convert_tab_to_parquet(input_folder, output_folder)
+
+
+def combine_parquet_files(input_folder, output_file):
+    """
+    Reads all .parquet files from the input folder, combines them into a single DataFrame,
+    and writes the combined DataFrame to a single .parquet file.
+
+    Parameters:
+    - input_folder: str, path to the folder containing .parquet files
+    - output_file: str, path to the output .parquet file
+    """
+    combined_df = []
+
+    # Iterate over all files in the input folder
+    for filename in os.listdir(input_folder):
+        if filename.endswith('.parquet'):
+            file_path = os.path.join(input_folder, filename)
+            
+            try:
+                # Read the parquet file into a DataFrame and append to the list
+                df = pd.read_parquet(file_path)
+                combined_df.append(df)
+                print(f"Read {filename}")
+            except Exception as e:
+                print(f"Failed to read {filename}: {e}")
+
+    # Combine all DataFrames into one
+    if combined_df:
+        final_df = pd.concat(combined_df, ignore_index=True)
+        
+        # Write the combined DataFrame to a single .parquet file
+        try:
+            final_df.to_parquet(output_file, index=False)
+            print(f"Combined parquet file saved as {output_file}")
+        except Exception as e:
+            print(f"Failed to save combined parquet file: {e}")
+    else:
+        print("No .parquet files found to combine.")
+
+# Example usage:
+input_folder = 'path/to/output_folder'
+output_file = 'path/to/combined_file.parquet'
+
+combine_parquet_files(input_folder, output_file)
+
+import shutil
+
+def delete_folder(folder_path):
+    """
+    Deletes the specified folder and all its contents.
+
+    Parameters:
+    - folder_path: str, path to the folder to be deleted
+    """
+    try:
+        shutil.rmtree(folder_path)
+        print(f"Deleted folder: {folder_path}")
+    except FileNotFoundError:
+        print(f"Folder not found: {folder_path}")
+    except Exception as e:
+        print(f"Failed to delete folder {folder_path}: {e}")
+
+# Example usage:
+output_folder = 'path/to/output_folder'
+
+delete_folder(output_folder)
+
+
