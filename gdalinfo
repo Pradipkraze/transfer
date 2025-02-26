@@ -1,0 +1,85 @@
+import os
+import pandas as pd
+import subprocess
+import json
+
+# Function to get folder path from user
+folder_path = input("Enter the folder path: ")
+
+# Step 1: Walk through the folder and create a DataFrame with .tif and .bil file paths
+file_paths = []
+for root, dirs, files in os.walk(folder_path):
+    for file in files:
+        if file.lower().endswith(('.tif', '.bil')):
+            full_path = os.path.join(root, file)
+            file_paths.append(full_path)
+
+# Create DataFrame with file paths
+df = pd.DataFrame(file_paths, columns=['path'])
+
+# Check if DataFrame is empty
+if df.empty:
+    print("No .tif or .bil files found in the specified folder.")
+else:
+    print(f"Found {len(df)} raster files.")
+
+    # Step 2: Use gdalinfo to retrieve raster info and add to DataFrame
+    raster_info = []
+
+    for path in df['path']:
+        try:
+            # Run gdalinfo with -json flag to get structured output
+            cmd = ['gdalinfo', '-json', path]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            
+            # Parse JSON output
+            info = json.loads(result.stdout)
+            
+            # Extract key information
+            width = info.get('size', [None, None])[0]
+            height = info.get('size', [None, None])[1]
+            bands = len(info.get('bands', []))
+            projection = info.get('coordinateSystem', {}).get('wkt', 'N/A')
+            # Get No Data Value from the first band (if available)
+            no_data = info.get('bands', [{}])[0].get('noDataValue', 'N/A')
+
+            # Append extracted info as a dictionary
+            raster_info.append({
+                'width': width,
+                'height': height,
+                'bands': bands,
+                'projection': projection,
+                'no_data_value': no_data
+            })
+        
+        except subprocess.CalledProcessError as e:
+            print(f"Error processing {path}: {e.stderr}")
+            raster_info.append({
+                'width': None,
+                'height': None,
+                'bands': None,
+                'projection': 'Error',
+                'no_data_value': 'Error'
+            })
+        except json.JSONDecodeError:
+            print(f"Could not parse gdalinfo output for {path}")
+            raster_info.append({
+                'width': None,
+                'height': None,
+                'bands': None,
+                'projection': 'Parse Error',
+                'no_data_value': 'Parse Error'
+            })
+
+    # Convert raster_info list to DataFrame and concatenate with original df
+    info_df = pd.DataFrame(raster_info)
+    df = pd.concat([df, info_df], axis=1)
+
+    # Display the final DataFrame
+    print("\nFinal DataFrame:")
+    print(df)
+
+    # Optionally save to CSV
+    output_csv = os.path.join(folder_path, 'raster_info.csv')
+    df.to_csv(output_csv, index=False)
+    print(f"\nDataFrame saved to: {output_csv}")
