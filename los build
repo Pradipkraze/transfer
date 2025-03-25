@@ -1,0 +1,76 @@
+los build
+
+
+import geopandas as gpd
+from shapely.geometry import Point, Polygon, LineString
+from shapely.ops import split
+import matplotlib.pyplot as plt
+
+# Step 1: Load the building polygon shapefile
+# Replace 'building.shp' with your shapefile path
+building_gdf = gpd.read_file('building.shp')
+
+# Assume the shapefile has one polygon; extract it
+building_polygon = building_gdf.geometry.iloc[0]
+
+# Step 2: Define observer and tower positions
+# Observer at (0, 0) on ground level
+observer = Point(0, 0)
+
+# Tower base at (300, 10), top at (300, 15) in a 2D plane (x, y)
+tower_base = Point(300, 10)
+tower_top = Point(300, 15)
+
+# Step 3: Line-of-sight from observer to tower top
+line_of_sight = LineString([observer, tower_top])
+
+# Step 4: Calculate the critical distance (200 meters, as derived)
+critical_distance = 200
+
+# Step 5: Define the "hidden zone" boundary
+# The line-of-sight reaches 10 meters height at x = 200
+hidden_boundary_point = Point(200, 10)
+
+# Create a vertical line at x = 200 from y = 0 to y = 10 (rooftop height)
+hidden_boundary = LineString([(200, 0), (200, 10)])
+
+# Step 6: Split the building polygon at the hidden boundary
+# Extend the boundary line to ensure it intersects the polygon fully
+extended_boundary = LineString([(200, -100), (200, 100)])  # Arbitrary large y-range
+
+# Split the polygon into parts
+split_result = split(building_polygon, extended_boundary)
+
+# Step 7: Identify the "hidden" part (closer to observer, x < 200)
+hidden_area = None
+for geom in split_result.geoms:
+    # Check if the centroid's x-coordinate is less than 200
+    if geom.centroid.x < 200:
+        hidden_area = geom
+        break
+
+# Step 8: Calculate the hidden area
+if hidden_area:
+    area_m2 = hidden_area.area
+    print(f"Area on the rooftop where the tower is not visible: {area_m2:.2f} square meters")
+else:
+    print("No hidden area found; check polygon and tower position.")
+
+# Step 9: Visualization (optional)
+fig, ax = plt.subplots()
+x, y = building_polygon.exterior.xy
+ax.plot(x, y, label="Building Polygon", color="blue")
+
+if hidden_area:
+    x, y = hidden_area.exterior.xy
+    ax.plot(x, y, label="Hidden Area", color="green", linestyle="--")
+
+ax.plot([0, 300], [0, 15], label="Line of Sight", color="red", linestyle=":")
+ax.plot([tower_base.x], [tower_base.y], "ro", label="Tower Base")
+ax.plot([200, 200], [0, 10], label="Hidden Boundary", color="black", linestyle="--")
+
+ax.set_xlabel("Horizontal Distance (m)")
+ax.set_ylabel("Height (m)")
+ax.legend()
+plt.title("Visibility Analysis")
+plt.show()
