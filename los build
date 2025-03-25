@@ -1,76 +1,128 @@
-los build
-
-
 import geopandas as gpd
-from shapely.geometry import Point, Polygon, LineString
+from shapely.geometry import Point, LineString, Polygon
 from shapely.ops import split
+import folium
 import matplotlib.pyplot as plt
 
 # Step 1: Load the building polygon shapefile
 # Replace 'building.shp' with your shapefile path
 building_gdf = gpd.read_file('building.shp')
 
-# Assume the shapefile has one polygon; extract it
+# Ensure the CRS is projected (meters), e.g., UTM. If not, reproject it.
+if not building_gdf.crs.is_projected:
+    # Example: Reproject to a common UTM zone (adjust EPSG code as needed)
+    building_gdf = building_gdf.to_crs(epsg=32633)  # UTM Zone 33N as an example
+
+# Extract the building polygon
 building_polygon = building_gdf.geometry.iloc[0]
 
-# Step 2: Define observer and tower positions
-# Observer at (0, 0) on ground level
-observer = Point(0, 0)
+# Step 2: Define tower and observer positions
+# Assume tower is at the centroid of the polygon (adjust as needed)
+tower_base = building_polygon.centroid
+tower_x, tower_y = tower_base.x, tower_base.y
 
-# Tower base at (300, 10), top at (300, 15) in a 2D plane (x, y)
-tower_base = Point(300, 10)
-tower_top = Point(300, 15)
+# Observer 300 meters away (assume along x-axis for simplicity; adjust direction if needed)
+observer = Point(tower_x - 300, tower_y)
 
-# Step 3: Line-of-sight from observer to tower top
-line_of_sight = LineString([observer, tower_top])
+# Tower top is 5 meters above rooftop (height not used in 2D map, but for logic)
+tower_top = Point(tower_x, tower_y)  # 2D representation
 
-# Step 4: Calculate the critical distance (200 meters, as derived)
+# Step 3: Line-of-sight and critical distance
+# Critical distance where line-of-sight hits rooftop height (10m) = 200m
 critical_distance = 200
+hidden_boundary = LineString([(tower_x - 200, tower_y - 1000), (tower_x - 200, tower_y + 1000)])  # Vertical line, extended
 
-# Step 5: Define the "hidden zone" boundary
-# The line-of-sight reaches 10 meters height at x = 200
-hidden_boundary_point = Point(200, 10)
-
-# Create a vertical line at x = 200 from y = 0 to y = 10 (rooftop height)
-hidden_boundary = LineString([(200, 0), (200, 10)])
-
-# Step 6: Split the building polygon at the hidden boundary
-# Extend the boundary line to ensure it intersects the polygon fully
-extended_boundary = LineString([(200, -100), (200, 100)])  # Arbitrary large y-range
-
-# Split the polygon into parts
-split_result = split(building_polygon, extended_boundary)
-
-# Step 7: Identify the "hidden" part (closer to observer, x < 200)
+# Step 4: Split the polygon to find the hidden area
+split_result = split(building_polygon, hidden_boundary)
 hidden_area = None
 for geom in split_result.geoms:
-    # Check if the centroid's x-coordinate is less than 200
-    if geom.centroid.x < 200:
+    if geom.centroid.x < tower_x - 100:  # Closer to observer
         hidden_area = geom
         break
 
-# Step 8: Calculate the hidden area
+# Step 5: Calculate area
 if hidden_area:
     area_m2 = hidden_area.area
-    print(f"Area on the rooftop where the tower is not visible: {area_m2:.2f} square meters")
+    print(f"Hidden area: {area_m2:.2f} square meters")
 else:
-    print("No hidden area found; check polygon and tower position.")
+    print("No hidden area found.")
 
-# Step 9: Visualization (optional)
+# Step 6: Create an interactive map with Folium
+# Center the map on the building centroid
+map_center = [tower_y, tower_x]  # Folium uses [lat, lon]
+m = folium.Map(location=map_center, zoom_start=15, tiles="OpenStreetMap")
+
+# Convert geometries to lat/lon for Folium (if not already in WGS84)
+if building_gdf.crs != "epsg:4326":
+    building_gdf_wgs84 = building_gdf.to_crs(epsg=4326)
+    building_polygon_wgs84 = building_gdf_wgs84.geometry.iloc[0]
+    tower_base_wgs84 = building_polygon_wgs84.centroid
+    observer_wgs84 = Point(tower_base_wgs84.x - 300 * 0.000009, tower_base_wgs84.y)  # Approx meters to degrees
+    if hidden_area:
+        hidden_area_wgs84 = hidden_area.to_crs(epsg=4326)
+else:
+    building_polygon_wgs84 = building_polygon
+    tower_base_wgs84 = tower_base
+    observer_wgs84 = observer
+    hidden_area_wgs84 = hidden_area
+
+# Add building polygon to the map
+folium.GeoJson(
+    building_polygon_wgs84.__geo_interface__,
+    style_function=lambda x: {"fillColor": "blue", "color": "blue", "weight": 2, "fillOpacity": 0.3},
+    name="Building"
+).add_to(m)
+
+# Add hidden area (if exists)
+if hidden_area:
+    folium.GeoJson(
+        hidden_area_wgs84.__geo_interface__,
+        style_function=lambda x: {"fillColor": "green", "color": "green", "weight": 2, "fillOpacity": 0.5},
+        name="Hidden Area"
+    ).add_to(m)
+
+# Add observer and tower markers
+folium.Marker(
+    [observer_wgs84.y, observer_wgs84.x],  # [lat, lon]
+    popup="Observer",
+    icon=folium.Icon(color="red")
+).add_to(m)
+
+folium.Marker(
+    [tower_base_wgs84.y, tower_base_wgs84.x],
+    popup="Tower",
+    icon=folium.Icon(color="purple")
+).add_to(m)
+
+# Add line-of-sight
+line_of_sight = LineString([observer_wgs84, tower_base_wgs84])
+folium.PolyLine(
+    locations=[[point[1], point[0]] for point in line_of_sight.coords],  # [lat, lon]
+    color="red",
+    weight=2,
+    opacity=0.8,
+    name="Line of Sight"
+).add_to(m)
+
+# Add layer control
+folium.LayerControl().add_to(m)
+
+# Save and display the map
+m.save("visibility_map.html")
+print("Map saved
+Open 'visibility_map.html' in a browser to view the interactive map.")
+
+# Optional: Static plot for reference (similar to previous script)
 fig, ax = plt.subplots()
 x, y = building_polygon.exterior.xy
-ax.plot(x, y, label="Building Polygon", color="blue")
-
+ax.plot(x, y, label="Building", color="blue")
 if hidden_area:
     x, y = hidden_area.exterior.xy
     ax.plot(x, y, label="Hidden Area", color="green", linestyle="--")
-
-ax.plot([0, 300], [0, 15], label="Line of Sight", color="red", linestyle=":")
-ax.plot([tower_base.x], [tower_base.y], "ro", label="Tower Base")
-ax.plot([200, 200], [0, 10], label="Hidden Boundary", color="black", linestyle="--")
-
-ax.set_xlabel("Horizontal Distance (m)")
-ax.set_ylabel("Height (m)")
+ax.plot([observer.x, tower_x], [observer.y, tower_y], "r:", label="Line of Sight")
+ax.plot([tower_x], [tower_y], "ro", label="Tower")
+ax.set_xlabel("X (m)")
+ax.set_ylabel("Y (m)")
 ax.legend()
-plt.title("Visibility Analysis")
+plt.title("Visibility Analysis (Projected CRS)")
 plt.show()
