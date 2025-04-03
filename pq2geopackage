@@ -1,0 +1,25 @@
+import geopandas as gpd
+import pandas as pd
+from shapely import wkt
+
+# Step 1: Read the Parquet file
+# Replace 'your_file.parquet' with your actual file path
+parquet_file = 'your_file.parquet'
+df = pd.read_parquet(parquet_file)
+
+# Step 2: Convert the WKT column to geometry
+# Replace 'geometry_wkt' with the name of your WKT column
+df['geometry'] = df['geometry_wkt'].apply(wkt.loads)
+gdf = gpd.GeoDataFrame(df, geometry='geometry')
+
+# Step 3: Set the initial CRS (if known) and project to WGS84
+# If you know the original CRS, replace 'EPSG:XXXX' with it (e.g., 'EPSG:3857')
+# If unknown, you might need to skip this and assume it's already in a compatible format
+gdf.set_crs(epsg=XXXX, inplace=True)  # Optional: Set original CRS if known
+gdf_wgs84 = gdf.to_crs(epsg=4326)      # Project to WGS84
+
+# Step 4: Write to GeoPackage
+# Replace 'output.gpkg' with your desired output file path
+gdf_wgs84.to_file('output.gpkg', driver='GPKG')
+
+print("GeoPackage written successfully!")
