@@ -1,0 +1,22 @@
+from gpudb import GPUdb
+
+# Step 1: Connect to Kinetica
+host = "http://<kinetica-host>:9191"  # Replace with your Kinetica instance URL
+username = "<your-username>"          # Replace with your username
+password = "<your-password>"          # Replace with your password
+
+# Instantiate GPUdb object
+db = GPUdb(host=host, username=username, password=password)
+
+# Step 2: Specify the KiFS file path and local download directory
+kifs_file_path = "/data/example_file.csv"  # Replace with the actual KiFS file path
+local_directory = "./downloaded_files"     # Local directory to save the file
+
+# Download the file from KiFS
+response = db.download_files(file_names=[kifs_file_path], local_dir=local_directory)
+
+# Check the response
+if response["status_info"]["status"] == "OK":
+    print(f"File downloaded successfully to {local_directory}")
+else:
+    print("Error downloading file:", response["status_info"]["message"])
